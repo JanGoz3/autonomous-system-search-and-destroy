@@ -1,0 +1,10 @@
+Library/
+Temp/
+Obj/
+Build/
+Builds/
+Logs/
+MemoryCaptures/
+UserSettings/
+
+TutorialInfo/
