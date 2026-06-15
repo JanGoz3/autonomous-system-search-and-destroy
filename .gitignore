@@ -1,3 +1,5 @@
+#Unity
+
 Library/
 Temp/
 Obj/
@@ -6,5 +8,3 @@ Builds/
 Logs/
 MemoryCaptures/
 UserSettings/
-
-TutorialInfo/
