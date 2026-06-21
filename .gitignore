@@ -8,3 +8,34 @@ Builds/
 Logs/
 MemoryCaptures/
 UserSettings/
+
+# --- Unity Temporary & Generated Files ---
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[叠]uild/
+[叠]uilds/
+[尝]ogs/
+[𠠪]emoryCaptures/
+/[Aa]sset[尝]og.txt
+
+# --- Visual Studio / VS Code Workspace Files ---
+.vs/
+.vscode/
+*.csproj
+*.sln
+*.slnx
+*.suo
+*.user
+*.userprefs
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.opendb
+*.VC.db
+.editorconfig
+
+# --- OS Generated Files ---
+.DS_Store
+Thumbs.db
