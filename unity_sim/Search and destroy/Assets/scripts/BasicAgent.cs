@@ -9,6 +9,8 @@ public class BasicAgent : Agent
     Rigidbody rBody;
     public float forceMultiplier = 10;
 
+    private float previousDistance;
+
     void Start() {
         rBody = GetComponent<Rigidbody>();
     }
@@ -23,7 +25,11 @@ public class BasicAgent : Agent
         }
 
         // randomizes location of the target
-        Target.localPosition = new Vector3(Random.value * 8 - 4, 0.5f, Random.value * 8 - 4);
+        float randomX = UnityEngine.Random.Range(-3f, 3f);
+        float randomZ = UnityEngine.Random.Range(-3f, 3f);
+        Target.localPosition = new Vector3(randomX, 0.5f, randomZ);
+
+        previousDistance = Vector3.Distance(transform.localPosition, Target.localPosition);
     }
 
     public override void CollectObservations(VectorSensor sensor) {
@@ -44,14 +50,25 @@ public class BasicAgent : Agent
         rBody.AddForce(controlSignal * forceMultiplier);
 
         // Rewards
-        float distanceToTarget = Vector3.Distance(transform.localPosition, Target.localPosition);
-
-        // Reached target
-        if (distanceToTarget < 1.42f) {
-            SetReward(1.0f);
+        float currentDistance = Vector3.Distance(transform.localPosition, Target.localPosition);    
+        
+        // 1. Reached Target (Big Reward)
+        if (currentDistance < 1.42f) {
+            SetReward(2.0f);
             EndEpisode();
-        } else if (transform.localPosition.y < 0) {
+        } 
+        // 2. Fell off the platform
+        else if (transform.localPosition.y < 0) {
+            SetReward(-1.0f); 
             EndEpisode();
+        }
+        // 3. Still playing
+        else {
+            float distanceMoved = previousDistance - currentDistance;
+            AddReward(distanceMoved); 
+            // Time Penalty
+            AddReward(-0.001f);
+            previousDistance = currentDistance;
         }
     }
 
