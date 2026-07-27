@@ -7,6 +7,13 @@ class DriverNet(nn.Module):
         super().__init__()
 
         self.log_std = nn.Parameter(torch.zeros(1, out_features))
+        self.out_features = out_features
+        
+        # Unity ML-Agents Metadata Constants
+        # CRITICAL: These must be FLOAT tensors. Unity casts them to Ints internally.
+        self.version_number = nn.Parameter(torch.Tensor([3]), requires_grad=False)
+        self.memory_size = nn.Parameter(torch.Tensor([0]), requires_grad=False)
+        self.continuous_shape = nn.Parameter(torch.Tensor([out_features]), requires_grad=False)
 
         self.actor_block = nn.Sequential(
             nn.Linear(in_features, 64),
@@ -24,6 +31,14 @@ class DriverNet(nn.Module):
             nn.ReLU(),
             nn.Linear(64, 1)
         )
+
+    def forward(self, state):
+        """
+        Used for ONNX export & Unity inference.
+        Returns the action AND the ML-Agents metadata constants directly.
+        """
+        action = self.actor_block(state)
+        return action, self.version_number, self.memory_size, self.continuous_shape
 
     def get_value(self, state):
         return self.critic_block(state)

@@ -5,6 +5,23 @@ from models.driver_network import DriverNet
 from models.driver_rollout_buffer import RolloutBuffer
 import torch.optim as optim
 from torch.nn.utils import clip_grad_norm_
+from collections import deque
+import numpy as np
+from mlagents_envs.side_channel.engine_configuration_channel import EngineConfigurationChannel
+import onnx
+from onnx import helper, TensorProto
+
+class TrainingTracker:
+    def __init__(self, window_size = 100):
+        self.episode_rewards = deque(maxlen=window_size)
+
+    def add_reward(self, reward):
+        self.episode_rewards.append(reward)
+
+    def get_stats(self):
+        if len(self.episode_rewards) == 0:
+            return 0.0, 0.0
+        return np.mean(self.episode_rewards), np.std(self.episode_rewards)
 
 print('running... waiting for connection with Unity simulation')
 
@@ -21,10 +38,12 @@ CLIP_COEF = 0.2
 ENT_COEF = 0.01
 VF_COEF = 0.5
 
-env = UnityEnvironment(file_name=None)
+engine_channel = EngineConfigurationChannel()
+engine_channel.set_configuration_parameters(time_scale=5.0)
+env = UnityEnvironment(file_name=None, side_channels=[engine_channel])
 model = DriverNet(in_features=STATE_SPACE, out_features=ACTION_SPACE).to(device)
 optimizer = optim.Adam(params=model.parameters(), lr=LEARNING_RATE)
-
+tracker = TrainingTracker(window_size=100)
 
 try:
     env.reset()
@@ -34,6 +53,8 @@ try:
 
     decision_steps, terminal_steps = env.get_steps(behavior_name)
     nr_of_agents = len(decision_steps)
+    current_episode_rewards = np.zeros(nr_of_agents)
+    total_env_steps = 0
     
     # This assigns each Unity agent a permanent "row index" (0 to 9) in our PyTorch arrays. 
     id_to_idx = {agent_id: i for i, agent_id in enumerate(decision_steps.agent_id)}
@@ -88,18 +109,36 @@ try:
         # match rewards to agents that are still playing
         for i, agent_id in enumerate(decision_steps.agent_id):
             if agent_id in id_to_idx:
-                current_rewards[id_to_idx[agent_id]] = float(decision_steps.reward[i])
-                current_dones[id_to_idx[agent_id]] = 0.0
+                idx = id_to_idx[agent_id]
+                reward = float(decision_steps.reward[i])
+                current_rewards[idx] = reward
+                current_dones[idx] = 0.0
+
+                current_episode_rewards[idx] += reward
 
         # match rewards to agents that crashed/finished
         for i, agent_id in enumerate(terminal_steps.agent_id):
             if agent_id in id_to_idx:
-                current_rewards[id_to_idx[agent_id]] = float(terminal_steps.reward[i])
-                current_dones[id_to_idx[agent_id]] = 1.0
+                idx = id_to_idx[agent_id]
+                reward = float(terminal_steps.reward[i])
+                current_rewards[idx] = reward
+                current_dones[idx] = 1.0
+
+                current_episode_rewards[idx] += reward
+                tracker.add_reward(current_episode_rewards[idx])
+                current_episode_rewards[idx] = 0.0
 
         buffer.insert(state_tensor, action_tensor, log_prob, value, current_rewards, current_dones)
-        print(buffer.step_counter)
+
+        total_env_steps += nr_of_agents
+
         if buffer.step_counter == buffer.buffer_size:
+            mean_rew, std_rew = tracker.get_stats()
+            print(f"==================================================")
+            print(f"Total Agent Steps: {total_env_steps}")
+            print(f"Mean Reward (Last 100 episodes): {mean_rew:.2f}")
+            print(f"Std Reward  (Last 100 episodes): {std_rew:.2f}")
+            print(f"==================================================")
             print("buffer full. Training.")
 
             with torch.no_grad():
@@ -121,7 +160,7 @@ try:
                     next_non_terminal = 1.0 - current_dones
                     next_values = next_value
                 else:
-                    next_non_terminal = 1.0 - buffer.dones[t+1]
+                    next_non_terminal = 1.0 - buffer.dones[t]
                     next_values = buffer.values[t + 1]
 
                 # the GAE math
@@ -185,8 +224,8 @@ try:
 
                     optimizer.step()
 
-            buffer.reset()
 
+            buffer.reset()
 
 except KeyboardInterrupt:
     print('stopped by user')
@@ -195,6 +234,33 @@ except Exception as e:
 
 finally:
     env.close()  # Unfreezes Unity gracefully
+    
+    # 1. Prepare for export
+    model.eval()
+    dummy_input = torch.randn(1, STATE_SPACE, device=device)
+    onnx_filename = "DriverNet.onnx"
+
+    # 2. Export natively via PyTorch
+    torch.onnx.export(
+        model,
+        dummy_input,
+        onnx_filename,
+        export_params=True,
+        opset_version=11,
+        do_constant_folding=True,
+        input_names=["obs_0"],
+        # Map exactly to the 4 outputs returned by our new forward() method
+        output_names=[
+            "continuous_actions",
+            "version_number",
+            "memory_size",
+            "continuous_action_output_shape"
+        ],
+        dynamic_axes={
+            "obs_0": {0: "batch_size"}, 
+            "continuous_actions": {0: "batch_size"}
+        },
+    )
+
+    print(f"Model successfully saved to {onnx_filename}!")
     print("Disconnected safely.")
-
-
