@@ -25,8 +25,8 @@ public class BasicAgent : Agent
         }
 
         // randomizes location of the target
-        float randomX = UnityEngine.Random.Range(-3f, 3f);
-        float randomZ = UnityEngine.Random.Range(-3f, 3f);
+        float randomX = UnityEngine.Random.Range(-9f, 9f);
+        float randomZ = UnityEngine.Random.Range(-9f, 9f);
         Target.localPosition = new Vector3(randomX, 0.5f, randomZ);
 
         previousDistance = Vector3.Distance(transform.localPosition, Target.localPosition);
