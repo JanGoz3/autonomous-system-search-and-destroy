@@ -843,6 +843,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 450858118}
+  - component: {fileID: 450858119}
   m_Layer: 0
   m_Name: ToF
   m_TagString: Untagged
@@ -865,6 +866,21 @@ Transform:
   m_Children: []
   m_Father: {fileID: 1954598956}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &450858119
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 450858117}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 4c53fbac88f8e3747acd8f0be3ccc8dd, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::ToFSensor
+  maxDistance: 4000
+  noiseStdDev: 5
+  timingBudget: 0.05
 --- !u!1 &516107455
 GameObject:
   m_ObjectHideFlags: 0
