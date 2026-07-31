@@ -32,7 +32,7 @@ public class TofSensor : MonoBehaviour
         {
             float distanceMm = hit.distance * 1000f;
             
-            float noiseMm = GenerateGaussianNoise(0f, noiseStdDev);
+            float noiseMm = NoiseGenerator.GenerateGaussian(0f, noiseStdDev);
             
             float measuredMm = Mathf.Clamp(distanceMm + noiseMm, 0f, maxDistance);
             cachedDistance = (ushort)measuredMm;
@@ -44,14 +44,6 @@ public class TofSensor : MonoBehaviour
             cachedDistance = maxDistance;
             Debug.DrawRay(transform.position, transform.forward * maxDistanceMeters, Color.green, timingBudget);
         }
-    }
-
-    private float GenerateGaussianNoise(float mean, float stdDev)
-    {
-        float u1 = 1.0f - Random.value;
-        float u2 = 1.0f - Random.value;
-        float randStdNormal = Mathf.Sqrt(-2.0f * Mathf.Log(u1)) * Mathf.Sin(2.0f * Mathf.PI * u2);
-        return mean + stdDev * randStdNormal;
     }
 
     void Update()

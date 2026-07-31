@@ -71,24 +71,16 @@ public class Imu : MonoBehaviour
         float imuGyroZ = localGyro.y;
 
         cachedAccelerometer = new Vector3(
-            (imuAccX / 9.81f) + GenerateGaussianNoise(0, accelNoiseStdDev),
-            (imuAccY / 9.81f) + GenerateGaussianNoise(0, accelNoiseStdDev),
-            (imuAccZ / 9.81f) + GenerateGaussianNoise(0, accelNoiseStdDev)
+            (imuAccX / 9.81f) + NoiseGenerator.GenerateGaussian(0, accelNoiseStdDev),
+            (imuAccY / 9.81f) + NoiseGenerator.GenerateGaussian(0, accelNoiseStdDev),
+            (imuAccZ / 9.81f) + NoiseGenerator.GenerateGaussian(0, accelNoiseStdDev)
         );
 
         cachedGyroscope = new Vector3(
-            imuGyroX + gyroBias.x + GenerateGaussianNoise(0, gyroNoiseStdDev),
-            imuGyroY + gyroBias.y + GenerateGaussianNoise(0, gyroNoiseStdDev),
-            imuGyroZ + gyroBias.z + GenerateGaussianNoise(0, gyroNoiseStdDev)
+            imuGyroX + gyroBias.x + NoiseGenerator.GenerateGaussian(0, gyroNoiseStdDev),
+            imuGyroY + gyroBias.y + NoiseGenerator.GenerateGaussian(0, gyroNoiseStdDev),
+            imuGyroZ + gyroBias.z + NoiseGenerator.GenerateGaussian(0, gyroNoiseStdDev)
         );
-    }
-
-    private float GenerateGaussianNoise(float mean, float stdDev)
-    {
-        float u1 = 1.0f - Random.value;
-        float u2 = 1.0f - Random.value;
-        float randStdNormal = Mathf.Sqrt(-2.0f * Mathf.Log(u1)) * Mathf.Sin(2.0f * Mathf.PI * u2);
-        return mean + stdDev * randStdNormal;
     }
 
     void FixedUpdate()
