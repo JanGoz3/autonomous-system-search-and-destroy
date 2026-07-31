@@ -913,6 +913,57 @@ Transform:
   - {fileID: 1489012212}
   m_Father: {fileID: 2041112225}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &553033337
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 553033338}
+  - component: {fileID: 553033339}
+  m_Layer: 0
+  m_Name: IMU
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &553033338
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 553033337}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0.045, z: 0.122}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 1288422552}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &553033339
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 553033337}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9f96c71c18a6dda409b4ecd8bf87313d, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Imu
+  carRigidbody: {fileID: 1860210430}
+  accelNoiseStdDev: 0.01
+  gyroNoiseStdDev: 0.08
+  gyroBias: {x: 0.7, y: 0.82, z: 1.5}
+  timingBudget: 0.025
+  cachedAccelerometer: {x: 0, y: 0, z: 0}
+  cachedGyroscope: {x: 0, y: 0, z: 0}
 --- !u!1 &779628059
 GameObject:
   m_ObjectHideFlags: 0
@@ -1836,6 +1887,7 @@ Transform:
   m_ConstrainProportionsScale: 0
   m_Children:
   - {fileID: 1323159435}
+  - {fileID: 553033338}
   m_Father: {fileID: 1860210429}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1323159434
