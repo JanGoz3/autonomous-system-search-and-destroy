@@ -1,6 +1,6 @@
 using UnityEngine;
 
-public class TurretController : MonoBehaviour
+public class ServosCamera : MonoBehaviour
 {
     [Header("Servos Transforms")]
     public Transform yawTransform;
@@ -46,10 +46,18 @@ public class TurretController : MonoBehaviour
     private float m_targetPitchAngle = 0f;
     private float m_currentPitchAngle = 0f;
 
-    void Start()
+    public void Initialize()
     {
         m_isInitialized = true;
         SetNeutralSwing();
+        
+        m_currentYawAngle = physicalCenterYawAngle;
+        m_targetYawAngle = physicalCenterYawAngle;
+        
+        m_currentPitchAngle = physicalCenterPitchAngle;
+        m_targetPitchAngle = physicalCenterPitchAngle;
+        
+        ApplyRotations();
     }
 
     void Update()
