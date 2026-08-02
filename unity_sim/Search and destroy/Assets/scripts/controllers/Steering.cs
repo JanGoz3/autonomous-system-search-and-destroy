@@ -4,9 +4,8 @@ public class Steering : MonoBehaviour
 {
     [Header("Steering Setup (Traxxas 2075 Servo)")]
     public float steeringServoSpeedDegPerSec = 350f;
-    public float physicalLeftSteerAngle = -35f;  
-    public float physicalCenterSteerAngle = 3f;  
-    public float physicalRightSteerAngle = 27f;  
+
+    private AnimationCurve m_physicalSteeringCurve;
 
     private WheelCollider m_frontLeft;
     private WheelCollider m_frontRight;
@@ -20,8 +19,20 @@ public class Steering : MonoBehaviour
     {
         m_frontLeft = frontLeft;
         m_frontRight = frontRight;
-        m_currentSteerAngle = physicalCenterSteerAngle;
-        m_targetSteerAngle = physicalCenterSteerAngle;
+
+        if (m_physicalSteeringCurve == null || m_physicalSteeringCurve.length == 0)
+        {
+            m_physicalSteeringCurve = new AnimationCurve(
+                new Keyframe(-1f, -23.5f),
+                new Keyframe(-0.5f, -14f),
+                new Keyframe(0f, 0f),
+                new Keyframe(0.5f, 14f),
+                new Keyframe(1f, 25f)
+            );
+        }
+
+        m_currentSteerAngle = m_physicalSteeringCurve.Evaluate(0f);
+        m_targetSteerAngle = m_currentSteerAngle;
         m_isInitialized = true;
     }
 
@@ -42,10 +53,7 @@ public class Steering : MonoBehaviour
         swing = Mathf.Clamp(swing, -1f, 1f);
         m_currentSetSwing = swing;
 
-        if (swing < 0f)
-            m_targetSteerAngle = Mathf.Lerp(physicalLeftSteerAngle, physicalCenterSteerAngle, swing + 1f);
-        else
-            m_targetSteerAngle = Mathf.Lerp(physicalCenterSteerAngle, physicalRightSteerAngle, swing);
+        m_targetSteerAngle = m_physicalSteeringCurve.Evaluate(swing);
     }
 
     public void SetNeutralSwing()
