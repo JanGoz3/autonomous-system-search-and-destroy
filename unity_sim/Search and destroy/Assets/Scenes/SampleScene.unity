@@ -639,7 +639,7 @@ Camera:
     m_Bits: 4294967295
   m_RenderingPath: -1
   m_TargetTexture: {fileID: 0}
-  m_TargetDisplay: 0
+  m_TargetDisplay: 1
   m_TargetEye: 3
   m_HDR: 1
   m_AllowMSAA: 1
@@ -1769,6 +1769,37 @@ Transform:
   - {fileID: 1860210429}
   m_Father: {fileID: 832575519}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &1199296527
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1199296528}
+  m_Layer: 0
+  m_Name: CenterOfMass
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &1199296528
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1199296527}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0.03, z: -0.0175}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 1860210429}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1220549961
 GameObject:
   m_ObjectHideFlags: 0
@@ -1778,7 +1809,6 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 1220549962}
-  - component: {fileID: 1220549963}
   m_Layer: 0
   m_Name: Turret
   m_TagString: Untagged
@@ -1802,30 +1832,6 @@ Transform:
   - {fileID: 1323159435}
   m_Father: {fileID: 1288422552}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &1220549963
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1220549961}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 835cd35b8a806874e85bd64853290249, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::TurretController
-  yawTransform: {fileID: 1323159435}
-  pitchTransform: {fileID: 1954598956}
-  servoSpeedDegPerSec: 545.5
-  physicalLeftYawAngle: -87.5
-  physicalCenterYawAngle: -3.5
-  physicalRightYawAngle: 76.5
-  physicalDownPitchAngle: 82
-  physicalCenterPitchAngle: -6
-  physicalUpPitchAngle: -86.5
-  enableManualTesting: 1
-  testSwingPitch: 0
-  testSwingYaw: 0
 --- !u!1 &1249345496
 GameObject:
   m_ObjectHideFlags: 0
@@ -2289,6 +2295,12 @@ GameObject:
   m_Component:
   - component: {fileID: 1860210429}
   - component: {fileID: 1860210430}
+  - component: {fileID: 1860210436}
+  - component: {fileID: 1860210434}
+  - component: {fileID: 1860210433}
+  - component: {fileID: 1860210435}
+  - component: {fileID: 1860210432}
+  - component: {fileID: 1860210431}
   m_Layer: 0
   m_Name: AutonomousCar
   m_TagString: Untagged
@@ -2313,6 +2325,7 @@ Transform:
   - {fileID: 1265878710}
   - {fileID: 300611514}
   - {fileID: 1288422552}
+  - {fileID: 1199296528}
   m_Father: {fileID: 1117406432}
   m_LocalEulerAnglesHint: {x: 0, y: -169.02, z: 0}
 --- !u!54 &1860210430
@@ -2342,6 +2355,111 @@ Rigidbody:
   m_Interpolate: 0
   m_Constraints: 0
   m_CollisionDetection: 0
+--- !u!114 &1860210431
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1860210428}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 268a05627dca92248bdebb938389e1b5, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::KeyboardController
+  chassis: {fileID: 1860210432}
+  steeringSensitivity: 3
+  speedSensitivity: 2
+  turretSensitivity: 4
+--- !u!114 &1860210432
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1860210428}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 959d11107d79a9b4a8ff3b9c2bc56bcd, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Chassis
+  motor: {fileID: 1860210434}
+  steering: {fileID: 1860210433}
+  servosCamera: {fileID: 1860210435}
+  carRigidbody: {fileID: 1860210430}
+  frontLeftWheel: {fileID: 793348376}
+  frontRightWheel: {fileID: 1723770403}
+  rearLeftWheel: {fileID: 1929377929}
+  rearRightWheel: {fileID: 2041112226}
+  frontLeftMesh: {fileID: 184722335}
+  frontRightMesh: {fileID: 1925957947}
+  rearLeftMesh: {fileID: 789668076}
+  rearRightMesh: {fileID: 1489012212}
+--- !u!114 &1860210433
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1860210428}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9cc1338f20caee943b5360103227102e, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Steering
+  steeringServoSpeedDegPerSec: 350
+--- !u!114 &1860210434
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1860210428}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a4dcfb5a79d6297419edb2043739a01e, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Motor
+  maxMotorTorque: 150
+  maxBrakeTorque: 300
+  maxSpeedMetersPerSec: 13.41
+--- !u!114 &1860210435
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1860210428}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 835cd35b8a806874e85bd64853290249, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::ServosCamera
+  yawTransform: {fileID: 1323159435}
+  pitchTransform: {fileID: 1954598956}
+  servoSpeedDegPerSec: 545.5
+  physicalLeftYawAngle: -87.5
+  physicalCenterYawAngle: -3.5
+  physicalRightYawAngle: 76.5
+  physicalDownPitchAngle: 82
+  physicalCenterPitchAngle: -6
+  physicalUpPitchAngle: -86.5
+  enableManualTesting: 0
+  testSwingPitch: 0
+  testSwingYaw: 0
+--- !u!114 &1860210436
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1860210428}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 28e174c9baa660444931c294ad9fe4cf, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::CarCenterOfMass
+  centerOfMassPoint: {fileID: 1199296528}
 --- !u!1 &1925957946
 GameObject:
   m_ObjectHideFlags: 0
