@@ -100,6 +100,7 @@ public:
         {
             float swingConstrainedPitch = constrain(-1*swingPitch, m_SwingConstraintPitchDown, m_SwingConstraintPitchUp );
             m_pitchServo.write(convertSwingToDegrees(swingConstrainedPitch));
+            m_currentSetSwingPitch = swingPitch;
         }
 
     }
@@ -110,6 +111,7 @@ public:
         {
             float swingConstrainedYaw = constrain(-1*swingYaw, m_SwingConstraintYawLeft, m_SwingConstraintYawRight);
             m_yawServo.write(convertSwingToDegrees(swingConstrainedYaw));
+            m_currentSetSwingYaw = swingYaw;
         }
 
     }

@@ -8,13 +8,15 @@
 #include <ServosCamera.hpp>
 #include "TeensyTimerTool.h"
 #include <SimpleSerialCommunicator.hpp>
+#include <WaveshareIMU.hpp>
+#include <PololuVL53L1X.hpp>
 
 #include <chrono>
 
-// TODO: 
+// TODO:
 // 1. Read configuration from a txt file on an SD card
 // 2. Test watchdog timers (communication); try out software vs hardware timers under long computations
-// 
+//
 
 class Chassis
 {
@@ -24,6 +26,8 @@ private:
     Steering steering;
     ServosCamera servosCamera;
     SimpleSerialCommunicator serialComm;
+    WaveshareIMU imu;
+    PololuVL53L1X tofSensor;
     TeensyTimerTool::OneShotTimer m_CommunicationWatchdogTimer;
     // TeensyTimerTool::PeriodicTimer m_watchdogTimer;
 
@@ -38,29 +42,30 @@ private:
     float m_programSteeringCommand = 0.0f;
     bool m_programMotionCommandActive = false;
 
+    uint32_t m_lastTelemetryTime = 0;
+    const uint32_t TELEMETRY_INTERVAL_MS = 20;
 
 public:
-
 public:
     Chassis()
     {
-
-        
     }
 
     void Initialize()
     {
         motor.Initialize(chassis_defines::MOTOR_OUT_PIN,
-                        chassis_defines::MOTOR_POWER_LEVEL_DEFAULT_CONSTRAINT_FORWARD, chassis_defines::MOTOR_POWER_LEVEL_DEFAULT_CONSTRAINT_BACKWARD);
+                         chassis_defines::MOTOR_POWER_LEVEL_DEFAULT_CONSTRAINT_FORWARD, chassis_defines::MOTOR_POWER_LEVEL_DEFAULT_CONSTRAINT_BACKWARD);
         rcReceiver.Initialize(chassis_defines::MOTOR_IN_PIN, chassis_defines::STEERING_IN_PIN);
         steering.Initialize(chassis_defines::STEERING_OUT_PIN,
                             chassis_defines::STEERING_SWING_DEFAULT_CONSTRAINT_LEFT, chassis_defines::STEERING_SWING_DEFAULT_CONSTRAINT_RIGHT);
-        servosCamera.Initialize(chassis_defines::SERVO_PITCH_PIN, chassis_defines::SERVO_YAW_PIN, 
-                                chassis_defines::SERVO_PITCH_SWING_DEFAULT_CONSTRAINT_UP, chassis_defines::SERVO_PITCH_SWING_DEFAULT_CONSTRAINT_DOWN, chassis_defines::SERVO_PITCH_DEFAULT_POSITION_MICROSECONDS, 
+        servosCamera.Initialize(chassis_defines::SERVO_PITCH_PIN, chassis_defines::SERVO_YAW_PIN,
+                                chassis_defines::SERVO_PITCH_SWING_DEFAULT_CONSTRAINT_UP, chassis_defines::SERVO_PITCH_SWING_DEFAULT_CONSTRAINT_DOWN, chassis_defines::SERVO_PITCH_DEFAULT_POSITION_MICROSECONDS,
                                 chassis_defines::SERVO_YAW_SWING_DEFAULT_CONSTRAINT_LEFT, chassis_defines::SERVO_YAW_SWING_DEFAULT_CONSTRAINT_RIGHT, chassis_defines::SERVO_YAW_DEFAULT_POSITION_MICROSECONDS);
-        
+        imu.Initialize();
+        tofSensor.Initialize();
+
         serialComm.Initialize(115200);
-        
+
         InitializeWatchdogTimers();
     }
 
@@ -108,24 +113,58 @@ public:
     {
         servosCamera.SetPitchYaw(pitch, yaw);
 
-        if (m_cameraServosDecoupledFromWatchdog == false) {
+        if (m_cameraServosDecoupledFromWatchdog == false)
+        {
             ResetWatchdogTimers();
         }
-        // SUGGESTION - DO NOT reset watchdog timer for camera servos, otherwise when there are 
+        // SUGGESTION - DO NOT reset watchdog timer for camera servos, otherwise when there are
         // problems with sterring/motor packets the chassis can "run away" if there are still servo packets
     }
 
+    void PublishTelemetryState()
+    {
+        String imuCsv = imu.GetValues();
+        String tofCsv = tofSensor.GetValues();
+        if (imuCsv.equals("no data"))
+        {
+            imuCsv = "-9999.0,-9999.0,-9999.0,-9999.0,-9999.0,-9999.0,-9999.0,-9999.0,-9999.0";
+        }
+        if (tofCsv.equals("no TOF data"))
+        {
+            tofCsv = "-9999.0";
+        }
+
+        auto camPitchYaw = servosCamera.GetCurrentPitchYaw();
+        float camPitch = camPitchYaw.first;
+        float camYaw = camPitchYaw.second;
+
+        char payload[SimpleSerialCommunicator::MAX_DATA_LENGTH + 1] = {0};
+        int written = snprintf(payload, sizeof(payload), "%.2f,%.2f,%.2f,%.2f,%s,%s", 
+                                                        motor.GetCurrentSetSpeed(),
+                                                        steering.GetCurrentSetSwing(),
+                                                        camPitch,
+                                                        camYaw,
+                                                        imuCsv.c_str(),
+                                                        tofCsv.c_str());
+
+        if (written > 0 && written < static_cast<int>(sizeof(payload)))
+        {
+            serialComm.SendCommand("state", payload);
+        }
+    }
 
     void Update()
     {
-        if (m_programCommandExpired) {
+        if (m_programCommandExpired)
+        {
             m_programCommandExpired = false;
             m_programSpeedCommand = 0.0f;
             m_programSteeringCommand = 0.0f;
             m_programMotionCommandActive = false;
         }
 
-        if (m_watchdogEventPending) {
+        if (m_watchdogEventPending)
+        {
             m_watchdogEventPending = false;
             serialComm.SendCommand("watchdog", "1");
         }
@@ -133,48 +172,59 @@ public:
         rcReceiver.Update();
         PublishOverrideStateIfNeeded();
 
-        // Process incoming serial data
+        imu.Update();
+        tofSensor.Update();
+
         serialComm.Update();
 
         SimpleSerialCommunicator::Message input = {};
-        while (serialComm.GetData(input)) {
+        while (serialComm.GetData(input))
+        {
             processCommand(input);
         }
 
         ApplySelectedControl();
 
+        const uint32_t now = millis();
+        if (now - m_lastTelemetryTime >= 20)
+        {
+            m_lastTelemetryTime = now;
+            PublishTelemetryState();
+        }
     }
 
-
 protected:
-
-    static bool TryParseFloat(const char* text, float& parsedValue)
+    static bool TryParseFloat(const char *text, float &parsedValue)
     {
-        if (text == nullptr || *text == '\0') {
+        if (text == nullptr || *text == '\0')
+        {
             return false;
         }
 
-        char* endPointer = nullptr;
+        char *endPointer = nullptr;
         parsedValue = strtof(text, &endPointer);
         return endPointer != text && endPointer != nullptr && *endPointer == '\0';
     }
 
-    static bool TryParseServoPayload(const char* text, float& pitch, float& yaw)
+    static bool TryParseServoPayload(const char *text, float &pitch, float &yaw)
     {
-        if (text == nullptr) {
+        if (text == nullptr)
+        {
             return false;
         }
 
         char buffer[SimpleSerialCommunicator::MAX_DATA_LENGTH + 1] = {0};
         const size_t inputLength = strlen(text);
-        if (inputLength > SimpleSerialCommunicator::MAX_DATA_LENGTH) {
+        if (inputLength > SimpleSerialCommunicator::MAX_DATA_LENGTH)
+        {
             return false;
         }
 
         memcpy(buffer, text, inputLength + 1);
 
-        char* comma = strchr(buffer, ',');
-        if (comma == nullptr || strchr(comma + 1, ',') != nullptr) {
+        char *comma = strchr(buffer, ',');
+        if (comma == nullptr || strchr(comma + 1, ',') != nullptr)
+        {
             return false;
         }
 
@@ -190,7 +240,8 @@ protected:
     void PublishOverrideStateIfNeeded()
     {
         const bool overrideActive = HasAnyManualOverride();
-        if (overrideActive == m_lastReportedOverrideState) {
+        if (overrideActive == m_lastReportedOverrideState)
+        {
             return;
         }
 
@@ -200,53 +251,75 @@ protected:
 
     void ApplySelectedControl()
     {
-        if (rcReceiver.HasThrottleManualActive()) {
+        if (rcReceiver.HasThrottleManualActive())
+        {
             motor.SetSpeed(rcReceiver.GetMotorCommand());
             ResetWatchdogTimers();
-        } else if (m_programMotionCommandActive) {
+        }
+        else if (m_programMotionCommandActive)
+        {
             motor.SetSpeed(m_programSpeedCommand);
-        } else {
+        }
+        else
+        {
             motor.StopMotor();
         }
 
-        if (rcReceiver.HasSteeringAssistActive()) {
+        if (rcReceiver.HasSteeringAssistActive())
+        {
             steering.SetSteering(rcReceiver.GetSteeringCommand());
-        } else if (m_programMotionCommandActive) {
+        }
+        else if (m_programMotionCommandActive)
+        {
             steering.SetSteering(m_programSteeringCommand);
-        } else {
+        }
+        else
+        {
             steering.SetNeutralSwing();
         }
     }
 
-    void processCommand(const SimpleSerialCommunicator::Message& input) {
-        if (strcmp(input.command, "speed") == 0) {
+    void processCommand(const SimpleSerialCommunicator::Message &input)
+    {
+        if (strcmp(input.command, "speed") == 0)
+        {
             float speed = 0.0f;
-            if (!TryParseFloat(input.data, speed)) {
+            if (!TryParseFloat(input.data, speed))
+            {
                 serialComm.ReportError("bad_number");
                 return;
             }
             m_programSpeedCommand = speed;
             m_programMotionCommandActive = true;
             ResetWatchdogTimers();
-        } else if (strcmp(input.command, "steering") == 0) {
+        }
+        else if (strcmp(input.command, "steering") == 0)
+        {
             float steeringValue = 0.0f;
-            if (!TryParseFloat(input.data, steeringValue)) {
+            if (!TryParseFloat(input.data, steeringValue))
+            {
                 serialComm.ReportError("bad_number");
                 return;
             }
             m_programSteeringCommand = steeringValue;
             m_programMotionCommandActive = true;
             ResetWatchdogTimers();
-        } else if (strcmp(input.command, "servos") == 0) {
+        }
+        else if (strcmp(input.command, "servos") == 0)
+        {
             float pitch = 0.0f;
             float yaw = 0.0f;
-            if (!TryParseServoPayload(input.data, pitch, yaw)) {
+            if (!TryParseServoPayload(input.data, pitch, yaw))
+            {
                 serialComm.ReportError("bad_value_count");
                 return;
             }
             this->SetCameraServos(pitch, yaw);
-        } else if (strcmp(input.command, "stop") == 0) {
-            if (input.dataLength != 0) {
+        }
+        else if (strcmp(input.command, "stop") == 0)
+        {
+            if (input.dataLength != 0)
+            {
                 serialComm.ReportError("bad_length");
                 return;
             }
@@ -254,33 +327,36 @@ protected:
             m_programSteeringCommand = 0.0f;
             m_programMotionCommandActive = false;
             StopMotion();
-        } else if (strcmp(input.command, "set_speed") == 0) {
+        }
+        else if (strcmp(input.command, "set_speed") == 0)
+        {
             serialComm.ReportError("unsupported");
-        } else {
+        }
+        else
+        {
             serialComm.ReportError("unknown_cmd");
         }
-}
-
+    }
 
     void InitializeWatchdogTimers()
-    {   
+    {
         m_CommunicationWatchdogTimer = TeensyTimerTool::OneShotTimer(TeensyTimerTool::TCK32); // Software timer (TCK), read manual
-        m_CommunicationWatchdogTimer.begin([this]{this->CommunicationTimerCallback();});
-
+        m_CommunicationWatchdogTimer.begin([this]
+                                           { this->CommunicationTimerCallback(); });
     }
 
     void CommunicationTimerCallback()
     {
         motor.StopMotor();
-        steering.SetNeutralSwing(); 
-        if (m_cameraServosDecoupledFromWatchdog == false){
+        steering.SetNeutralSwing();
+        if (m_cameraServosDecoupledFromWatchdog == false)
+        {
             servosCamera.SetNeutralSwing();
         }
         m_programMotionCommandActive = false;
         m_programCommandExpired = true;
         m_watchdogEventPending = true;
     }
-
 
     void ResetWatchdogTimers()
     {

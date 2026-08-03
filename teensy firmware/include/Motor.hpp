@@ -53,7 +53,7 @@ public:
 
     }
 
-    Motor(uint8_t pin, int speedConstraintForward = 1.0f, int SpeedConstraintReverse=-1.0f)
+    Motor(uint8_t pin, float speedConstraintForward = 1.0f, float SpeedConstraintReverse=-1.0f)
     {
         Initialize(pin, speedConstraintForward, SpeedConstraintReverse);
     }
@@ -108,7 +108,7 @@ public:
 
     // }
 
-    int GetCurrentSetSpeed()
+    float GetCurrentSetSpeed()
     {
         return m_currentSetSpeed;
     }
