@@ -719,7 +719,7 @@ GameObject:
   - component: {fileID: 960083404246799892}
   - component: {fileID: 1959501400699687109}
   - component: {fileID: 5146340543588288506}
-  - component: {fileID: 3351448102444880551}
+  - component: {fileID: -2845163636235054939}
   - component: {fileID: 4710264585934298601}
   m_Layer: 0
   m_Name: AutonomousCar
@@ -840,7 +840,7 @@ MonoBehaviour:
   enableManualTesting: 0
   testSwingPitch: 0
   testSwingYaw: 0
---- !u!114 &3351448102444880551
+--- !u!114 &-2845163636235054939
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -860,10 +860,8 @@ MonoBehaviour:
   frontRightWheel: {fileID: 4280885504345765695}
   rearLeftWheel: {fileID: 2865209978765364066}
   rearRightWheel: {fileID: 113134384591664629}
-  frontLeftMesh: {fileID: 3164449532581012729}
-  frontRightMesh: {fileID: 6939546745388484580}
-  rearLeftMesh: {fileID: 2860974520942364746}
-  rearRightMesh: {fileID: 455070704072551248}
+  imu: {fileID: 50277020495791383}
+  tofSensor: {fileID: 8744067710143522492}
 --- !u!114 &4710264585934298601
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -876,7 +874,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 268a05627dca92248bdebb938389e1b5, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::KeyboardController
-  chassis: {fileID: 3351448102444880551}
+  chassis: {fileID: 0}
   steeringSensitivity: 3
   speedSensitivity: 2
   turretSensitivity: 4
