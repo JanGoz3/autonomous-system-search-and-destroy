@@ -40,3 +40,4 @@ UserSettings/
 .DS_Store
 Thumbs.db
 **/__pycache__/**
+models/YOLO26/data

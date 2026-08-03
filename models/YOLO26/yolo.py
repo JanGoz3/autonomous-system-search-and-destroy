@@ -1,6 +1,14 @@
+import cv2
 from ultralytics import YOLO
 
-model = YOLO("yolo26m.pt")
-results = model('orange_locker_corridor.png', conf=0.1)
+model = YOLO("best.pt")
+
+results = model('asd.png')
+
 for result in results:
-    result.show()
+
+    annotated_frame = result.plot(boxes=True, conf=True)
+    cv2.imshow("Podglad celow - Tylko ramki", annotated_frame)
+    
+cv2.waitKey(0)
+cv2.destroyAllWindows()
