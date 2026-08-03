@@ -131,6 +131,10 @@ PrefabInstance:
       propertyPath: m_Name
       value: AutonomousCar
       objectReference: {fileID: 0}
+    - target: {fileID: 4710264585934298601, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
+      propertyPath: chassis
+      value: 
+      objectReference: {fileID: 234002308}
     - target: {fileID: 7355834142376369798, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
       propertyPath: m_LocalPosition.x
       value: 0.14062
@@ -181,6 +185,17 @@ Transform:
   m_CorrespondingSourceObject: {fileID: 7355834142376369798, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
   m_PrefabInstance: {fileID: 234002306}
   m_PrefabAsset: {fileID: 0}
+--- !u!114 &234002308 stripped
+MonoBehaviour:
+  m_CorrespondingSourceObject: {fileID: -2845163636235054939, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
+  m_PrefabInstance: {fileID: 234002306}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 959d11107d79a9b4a8ff3b9c2bc56bcd, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Chassis
 --- !u!1 &330585543
 GameObject:
   m_ObjectHideFlags: 0

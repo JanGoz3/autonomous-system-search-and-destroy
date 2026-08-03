@@ -874,7 +874,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 268a05627dca92248bdebb938389e1b5, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::KeyboardController
-  chassis: {fileID: 0}
+  chassis: {fileID: -2845163636235054939}
   steeringSensitivity: 3
   speedSensitivity: 2
   turretSensitivity: 4
