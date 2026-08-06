@@ -720,7 +720,6 @@ GameObject:
   - component: {fileID: 1959501400699687109}
   - component: {fileID: 5146340543588288506}
   - component: {fileID: -2845163636235054939}
-  - component: {fileID: 4710264585934298601}
   - component: {fileID: 3815576015037651868}
   - component: {fileID: 8360594413510804119}
   - component: {fileID: -6077569021290102734}
@@ -865,22 +864,6 @@ MonoBehaviour:
   rearRightWheel: {fileID: 113134384591664629}
   imu: {fileID: 50277020495791383}
   tofSensor: {fileID: 8744067710143522492}
---- !u!114 &4710264585934298601
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 2358030015814267893}
-  m_Enabled: 0
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 268a05627dca92248bdebb938389e1b5, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::KeyboardController
-  chassis: {fileID: -2845163636235054939}
-  steeringSensitivity: 3
-  speedSensitivity: 2
-  turretSensitivity: 4
 --- !u!114 &3815576015037651868
 MonoBehaviour:
   m_ObjectHideFlags: 0
