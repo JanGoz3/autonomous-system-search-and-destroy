@@ -12,6 +12,16 @@ public class CarAgent : Agent
     [Header("Training Environment")]
     public Transform startingPoint;
 
+    [Header("Heuristic Smoothing (Keyboard Only)")]
+    public float steeringSensitivity = 3f;
+    public float speedSensitivity = 0.25f;
+    public float turretSensitivity = 4f;
+
+    private float m_currentSteering = 0f;
+    private float m_currentSpeed = 0f;
+    private float m_currentPitch = 0f;
+    private float m_currentYaw = 0f;
+
     public override void OnEpisodeBegin()
     {
         if (chassis != null)
@@ -64,5 +74,40 @@ public class CarAgent : Agent
         }
 
         // TODO: Rewards system
+    }
+
+    public override void Heuristic(in ActionBuffers actionsOut)
+    {
+        var continuousActionsOut = actionsOut.ContinuousActions;
+        var keyboard = Keyboard.current;
+        
+        if (keyboard == null) return;
+
+        float targetSpeed = 0f;
+        float targetSteering = 0f;
+        float targetPitch = 0f;
+        float targetYaw = 0f;
+
+        if (keyboard.upArrowKey.isPressed) targetSpeed = 1f;
+        if (keyboard.downArrowKey.isPressed) targetSpeed = -1f;
+
+        if (keyboard.rightArrowKey.isPressed) targetSteering = 1f;
+        if (keyboard.leftArrowKey.isPressed) targetSteering = -1f;
+
+        if (keyboard.wKey.isPressed) targetPitch = 1f;
+        if (keyboard.sKey.isPressed) targetPitch = -1f;
+
+        if (keyboard.dKey.isPressed) targetYaw = 1f;
+        if (keyboard.aKey.isPressed) targetYaw = -1f;
+
+        m_currentSpeed = Mathf.MoveTowards(m_currentSpeed, targetSpeed, speedSensitivity * Time.deltaTime);
+        m_currentSteering = Mathf.MoveTowards(m_currentSteering, targetSteering, steeringSensitivity * Time.deltaTime);
+        m_currentPitch = Mathf.MoveTowards(m_currentPitch, targetPitch, turretSensitivity * Time.deltaTime);
+        m_currentYaw = Mathf.MoveTowards(m_currentYaw, targetYaw, turretSensitivity * Time.deltaTime);
+
+        continuousActionsOut[0] = m_currentSpeed;
+        continuousActionsOut[1] = m_currentSteering;
+        continuousActionsOut[2] = m_currentPitch;
+        continuousActionsOut[3] = m_currentYaw;
     }
 }
