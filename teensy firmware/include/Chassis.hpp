@@ -43,7 +43,7 @@ private:
     bool m_programMotionCommandActive = false;
 
     uint32_t m_lastTelemetryTime = 0;
-    const uint32_t TELEMETRY_INTERVAL_MS = 20;
+    const uint32_t TELEMETRY_INTERVAL_MS = 25;
 
 public:
 public:
@@ -125,13 +125,15 @@ public:
     {
         String imuCsv = imu.GetValues();
         String tofCsv = tofSensor.GetValues();
+        
         if (imuCsv.equals("no data"))
         {
-            imuCsv = "-9999.0,-9999.0,-9999.0,-9999.0,-9999.0,-9999.0,-9999.0,-9999.0,-9999.0";
+            imuCsv = "0.00,0.00,1.00,0.00,0.00,0.00";
         }
+        
         if (tofCsv.equals("no TOF data"))
         {
-            tofCsv = "-9999.0";
+            tofCsv = "4000.0";
         }
 
         auto camPitchYaw = servosCamera.GetCurrentPitchYaw();
@@ -186,7 +188,7 @@ public:
         ApplySelectedControl();
 
         const uint32_t now = millis();
-        if (now - m_lastTelemetryTime >= 20)
+        if (now - m_lastTelemetryTime >= TELEMETRY_INTERVAL_MS)
         {
             m_lastTelemetryTime = now;
             PublishTelemetryState();
