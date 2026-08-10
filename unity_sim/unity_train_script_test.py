@@ -1,8 +1,8 @@
 import torch
 from mlagents_envs.environment import UnityEnvironment
 from mlagents_envs.base_env import ActionTuple
-from models.driver_network import DriverNet
-from models.driver_rollout_buffer import RolloutBuffer
+from models.driverModel.driver_network import DriverNet
+from models.driverModel.driver_rollout_buffer import RolloutBuffer
 import torch.optim as optim
 from torch.nn.utils import clip_grad_norm_
 from collections import deque
