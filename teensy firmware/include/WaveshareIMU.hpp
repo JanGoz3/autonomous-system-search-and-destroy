@@ -100,10 +100,7 @@ class WaveshareIMU
 
             const int written = snprintf(destination,
                                          destinationSize,
-                                         "%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f",
-                                         yaw,
-                                         pitch,
-                                         roll,
+                                         "%.2f,%.2f,%.2f,%.2f,%.2f,%.2f",
                                          accel_x,
                                          accel_y,
                                          accel_z,
