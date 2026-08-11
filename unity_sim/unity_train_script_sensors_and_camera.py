@@ -29,7 +29,8 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 GAMMA = 0.99
 GAE_LAMBDA = 0.95
-STATE_SPACE = 33
+STACKED_VECTORS = 3
+STATE_SPACE = 17
 ACTION_SPACE = 4
 LEARNING_RATE = 3e-4
 PPO_EPOCHS = 4
@@ -41,7 +42,7 @@ VF_COEF = 0.5
 engine_channel = EngineConfigurationChannel()
 engine_channel.set_configuration_parameters(time_scale=5.0)
 env = UnityEnvironment(file_name=None, side_channels=[engine_channel])
-model = DriverNet(in_features=STATE_SPACE, out_features=ACTION_SPACE).to(device)
+model = DriverNet(in_features=STATE_SPACE * STACKED_VECTORS, out_features=ACTION_SPACE).to(device)
 optimizer = optim.Adam(params=model.parameters(), lr=LEARNING_RATE)
 tracker = TrainingTracker(window_size=100)
 
@@ -59,7 +60,7 @@ try:
     # This assigns each Unity agent a permanent "row index" (0 to 9) in our PyTorch arrays. 
     id_to_idx = {agent_id: i for i, agent_id in enumerate(decision_steps.agent_id)}
 
-    buffer = RolloutBuffer(nr_of_agents=nr_of_agents, device=device)
+    buffer = RolloutBuffer(nr_of_agents=nr_of_agents, device=device, action_space= ACTION_SPACE, state_space = STATE_SPACE * STACKED_VECTORS)
 
     # TODO: optionally add retrieving from the environment action space and state space
 
@@ -152,7 +153,7 @@ try:
             print("buffer full. Training.")
 
             with torch.no_grad():
-                next_state_tensor = torch.zeros((nr_of_agents, STATE_SPACE), dtype=torch.float32).to(device)
+                next_state_tensor = torch.zeros((nr_of_agents, STATE_SPACE * STACKED_VECTORS), dtype=torch.float32).to(device)
                 for i, agent_id in enumerate(decision_steps.agent_id):
                     if agent_id in id_to_idx:
                         next_state_tensor[id_to_idx[agent_id]] = torch.tensor(decision_steps.obs[0][i], dtype=torch.float32).to(device)
@@ -182,7 +183,7 @@ try:
             # flattening the data for PPO
             # ex. 2048 steps * 10 agents into 2048 flat rows
 
-            b_states = buffer.states.view(-1, STATE_SPACE).to(device)
+            b_states = buffer.states.view(-1, STATE_SPACE * STACKED_VECTORS).to(device)
             b_actions = buffer.actions.view(-1, ACTION_SPACE).to(device)
             b_logprobs = buffer.logprobs.view(-1).to(device)
             b_advantages = advantages.view(-1).to(device)
@@ -247,7 +248,7 @@ finally:
     
     # 1. Prepare for export
     model.eval()
-    dummy_input = torch.randn(1, STATE_SPACE, device=device)
+    dummy_input = torch.randn(1, STATE_SPACE * STACKED_VECTORS, device=device)
     onnx_filename = "DriverNet.onnx"
 
     # 2. Export natively via PyTorch
