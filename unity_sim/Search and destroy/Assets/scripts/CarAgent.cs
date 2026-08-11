@@ -12,6 +12,9 @@ public class CarAgent : Agent
     [Header("Training Environment")]
     public Transform startingPoint;
 
+    [Header("Target Object")]
+    public Transform Target;
+
     [Header("Heuristic Smoothing (Keyboard Only)")]
     public float steeringSensitivity = 3f;
     public float speedSensitivity = 0.25f;
@@ -21,6 +24,7 @@ public class CarAgent : Agent
     private float m_currentSpeed = 0f;
     private float m_currentPitch = 0f;
     private float m_currentYaw = 0f;
+    private float previousDistance = 0f;
 
     public override void OnEpisodeBegin()
     {
@@ -45,6 +49,13 @@ public class CarAgent : Agent
             transform.localPosition = new Vector3(0, 0.5f, 0);
             transform.localRotation = Quaternion.identity;
         }
+
+        // randomizes location of the target
+        float randomX = UnityEngine.Random.Range(-9f, 9f);
+        float randomZ = UnityEngine.Random.Range(-9f, 9f);
+        Target.localPosition = new Vector3(randomX, 0.5f, randomZ);
+
+        previousDistance = Vector3.Distance(transform.localPosition, Target.localPosition);
     }
 
     public override void CollectObservations(VectorSensor sensor)
