@@ -64,10 +64,7 @@ public class CarAgent : Agent
 
         float[] telemetryData = chassis.GetTelemetryState();
 
-        foreach (float data in telemetryData)
-        {
-            sensor.AddObservation(data);
-        }
+        sensor.AddObservation(telemetryData);
     }
 
     public override void OnActionReceived(ActionBuffers actions)
