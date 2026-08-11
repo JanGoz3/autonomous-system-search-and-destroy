@@ -16,7 +16,7 @@ public class Chassis : MonoBehaviour
     public TofSensor tofSensor;
     public YoloVision yoloVision;
 
-    void Start()
+    void Awake() 
     {
         Initialize();
     }
@@ -58,6 +58,10 @@ public class Chassis : MonoBehaviour
         Vector3 gyro = imu.GetGyroscope();
         var cameraState = servosCamera.GetCurrentPitchYaw();
 
+        float maxAccel = 16f;
+        float maxGyro = 2000f;
+        float maxTof = 4000f;
+
         float[] yoloData = yoloVision.GetYoloState();
 
         float[] telemetry = new float[]
@@ -66,13 +70,16 @@ public class Chassis : MonoBehaviour
             steering.GetCurrentSetSwing(),
             cameraState.pitch,
             cameraState.yaw,
-            accel.x,
-            accel.y,
-            accel.z,
-            gyro.x,
-            gyro.y,
-            gyro.z,
-            tofSensor.GetDistance(),
+            
+            Mathf.Clamp(accel.x / maxAccel, -1f, 1f),
+            Mathf.Clamp(accel.y / maxAccel, -1f, 1f),
+            Mathf.Clamp(accel.z / maxAccel, -1f, 1f),
+            
+            Mathf.Clamp(gyro.x / maxGyro, -1f, 1f),
+            Mathf.Clamp(gyro.y / maxGyro, -1f, 1f),
+            Mathf.Clamp(gyro.z / maxGyro, -1f, 1f),
+            
+            Mathf.Clamp(tofSensor.GetDistance() / maxTof, 0f, 1f),
 
             yoloData[0], // Bounding Box Center X
             yoloData[1], // Bounding Box Center Y
