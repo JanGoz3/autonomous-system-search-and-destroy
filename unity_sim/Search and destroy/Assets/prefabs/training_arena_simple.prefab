@@ -123,7 +123,7 @@ GameObject:
   m_Component:
   - component: {fileID: 1653031600254114356}
   m_Layer: 0
-  m_Name: training_arena
+  m_Name: training_arena_simple
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
