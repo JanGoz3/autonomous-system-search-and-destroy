@@ -3,6 +3,7 @@ using Unity.MLAgents.Sensors;
 using Unity.MLAgents.Actuators;
 using UnityEngine;
 using UnityEngine.InputSystem;
+using UnityEngine.AI;
 
 public class CarAgent : Agent
 {
@@ -14,6 +15,12 @@ public class CarAgent : Agent
 
     [Header("Target Object")]
     public Transform Target;
+
+    [Header("Target Spawn Radius")]
+    public float tgtSpawnR = 2;
+
+    [Header("Navmesh Target Spawner")]
+    public LocalNavMeshSpawner spawner;
 
     [Header("Heuristic Smoothing (Keyboard Only)")]
     public float steeringSensitivity = 3f;
@@ -39,21 +46,14 @@ public class CarAgent : Agent
             }
         }
 
-        if (startingPoint != null)
-        {
-            transform.position = startingPoint.position;
-            transform.rotation = startingPoint.rotation;
-        }
-        else
-        {
-            transform.localPosition = new Vector3(0, 0.5f, 0);
-            transform.localRotation = Quaternion.identity;
-        }
+        Vector3 safeSpawnLocation = spawner.GetRandomSafePoint();
 
-        // randomizes location of the target
-        float randomX = UnityEngine.Random.Range(-9f, 9f);
-        float randomZ = UnityEngine.Random.Range(-9f, 9f);
-        Target.localPosition = new Vector3(randomX, 0.5f, randomZ);
+        transform.position = safeSpawnLocation + new Vector3(0, 0.1f, 0);
+        transform.rotation = Quaternion.Euler(0, Random.Range(0f, 360f), 0);
+
+        Vector3 targetSpawnPosition = spawner.GetRandomSafePoint();
+        targetSpawnPosition.y = 1.625f;
+        Target.position = targetSpawnPosition;
 
         previousDistance = Vector3.Distance(transform.localPosition, Target.localPosition);
     }
@@ -86,12 +86,12 @@ public class CarAgent : Agent
 
         // TODO: Rewards system
         // 1. Reached Target (Big Reward)
-        if (currentDistance < 1.42f) {
+        if (currentDistance < 0.2f) {
             SetReward(2.0f);
             EndEpisode();
         } 
         // 2. Fell off the platform
-        else if (transform.localPosition.y < 0) {
+        else if (transform.localPosition.y < -0.2) {
             SetReward(-1.0f); 
             EndEpisode();
         }
