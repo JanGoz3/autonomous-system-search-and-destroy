@@ -68,46 +68,29 @@ try:
         # ask unity for the current state of the agents
         decision_steps, terminal_steps = env.get_steps(behavior_name)
 
-        if len(decision_steps) > 0:
+        state_tensor = torch.zeros((nr_of_agents, STATE_SPACE * STACKED_VECTORS), dtype=torch.float32).to(device)
+        for i, agent_id in enumerate(decision_steps.agent_id):
+            if agent_id in id_to_idx:
+                state_tensor[id_to_idx[agent_id]] = torch.tensor(decision_steps.obs[0][i], dtype=torch.float32).to(device)
+        for i, agent_id in enumerate(terminal_steps.agent_id):
+            if agent_id in id_to_idx:
+                state_tensor[id_to_idx[agent_id]] = torch.tensor(terminal_steps.obs[0][i], dtype=torch.float32).to(device)
 
-            camera_image = None
-            sensor_vector = None
+        # here the agent is just playing, not learning yet
+        with torch.no_grad():
+            action_tensor, log_prob, entropy, value = model.get_action_and_value(state_tensor)
+            value = value.flatten()
+            log_prob = log_prob.flatten()
 
-            for obs_array in decision_steps.obs:
-                if len(obs_array.shape) == 4:
-                    camera_image = obs_array
-                elif len(obs_array.shape) == 2:
-                    sensor_vector = obs_array
+        # unity will throw error if we send action to a dead agent so we filter those out
+        active_actions = torch.zeros((len(decision_steps), ACTION_SPACE), dtype=torch.float32).to(device)
+        for i, agent_id in enumerate(decision_steps.agent_id):
+            if agent_id in id_to_idx:
+                active_actions[i] = action_tensor[id_to_idx[agent_id]]
 
-            print(f"Czujniki: {sensor_vector.shape} | Kamera: {camera_image.shape}")
-
-           
-            state_tensor = torch.zeros((nr_of_agents, STATE_SPACE), dtype=torch.float32).to(device)
-            
-            for i, agent_id in enumerate(decision_steps.agent_id):
-                if agent_id in id_to_idx:
-                    state_tensor[id_to_idx[agent_id]] = torch.tensor(sensor_vector[i], dtype=torch.float32).to(device)
-            
-            for i, agent_id in enumerate(terminal_steps.agent_id):
-                if agent_id in id_to_idx:
-                    term_sensor_vector = next(obs for obs in terminal_steps.obs if len(obs.shape) == 2)
-                    state_tensor[id_to_idx[agent_id]] = torch.tensor(term_sensor_vector[i], dtype=torch.float32).to(device)
-
-            # here the agent is just playing, not learning yet
-            with torch.no_grad():
-                action_tensor, log_prob, entropy, value = model.get_action_and_value(state_tensor)
-                value = value.flatten()
-                log_prob = log_prob.flatten()
-
-            # unity will throw error if we send action to a dead agent so we filter those out
-            active_actions = torch.zeros((len(decision_steps), ACTION_SPACE), dtype=torch.float32).to(device)
-            for i, agent_id in enumerate(decision_steps.agent_id):
-                if agent_id in id_to_idx:
-                    active_actions[i] = action_tensor[id_to_idx[agent_id]]
-
-            action_numpy = active_actions.cpu().numpy()
-            action_tuple = ActionTuple(continuous=action_numpy)
-            env.set_actions(behavior_name, action_tuple)
+        action_numpy = active_actions.cpu().numpy()
+        action_tuple = ActionTuple(continuous=action_numpy)
+        env.set_actions(behavior_name, action_tuple)
         
         env.step()  # Ticks the physics loop forward 1 frame
 
