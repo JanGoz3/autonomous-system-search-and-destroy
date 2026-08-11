@@ -74,6 +74,9 @@ public class CarAgent : Agent
         float aiCamPitch = actions.ContinuousActions[2];
         float aiCamYaw = actions.ContinuousActions[3];
 
+        // Rewards
+        float currentDistance = Vector3.Distance(transform.localPosition, Target.localPosition);
+
         if (chassis != null)
         {
             chassis.SetSpeed(aiMotor);
@@ -82,6 +85,24 @@ public class CarAgent : Agent
         }
 
         // TODO: Rewards system
+        // 1. Reached Target (Big Reward)
+        if (currentDistance < 1.42f) {
+            SetReward(2.0f);
+            EndEpisode();
+        } 
+        // 2. Fell off the platform
+        else if (transform.localPosition.y < 0) {
+            SetReward(-1.0f); 
+            EndEpisode();
+        }
+        // 3. Still playing
+        else {
+            float distanceMoved = previousDistance - currentDistance;
+            AddReward(distanceMoved); 
+            // Time Penalty
+            AddReward(-0.001f);
+            previousDistance = currentDistance;
+        }
     }
 
     public override void Heuristic(in ActionBuffers actionsOut)
