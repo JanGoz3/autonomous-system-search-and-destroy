@@ -14,6 +14,7 @@ public class Chassis : MonoBehaviour
     [Header("Sensors")]
     public Imu imu;
     public TofSensor tofSensor;
+    public YoloVision yoloVision;
 
     void Start()
     {
@@ -57,6 +58,8 @@ public class Chassis : MonoBehaviour
         Vector3 gyro = imu.GetGyroscope();
         var cameraState = servosCamera.GetCurrentPitchYaw();
 
+        float[] yoloData = yoloVision.GetYoloState();
+
         float[] telemetry = new float[]
         {
             motor.GetCurrentSetSpeed(),
@@ -69,9 +72,16 @@ public class Chassis : MonoBehaviour
             gyro.x,
             gyro.y,
             gyro.z,
-            tofSensor.GetDistance()
-        };
+            tofSensor.GetDistance(),
 
+            yoloData[0], // Bounding Box Center X
+            yoloData[1], // Bounding Box Center Y
+            yoloData[2], // Bounding Box Width
+            yoloData[3], // Bounding Box Height
+            yoloData[4], // YOLO Confidence Score
+            yoloData[5]  // YOLO Class ID
+        };
+        
         return telemetry;
     }
 }
