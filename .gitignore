@@ -41,3 +41,4 @@ UserSettings/
 Thumbs.db
 **/__pycache__/**
 models/YOLO26/data
+models/YOLO26/runs
