@@ -48,12 +48,37 @@ public class CarAgent : Agent
 
         Vector3 safeSpawnLocation = spawner.GetRandomSafePoint();
 
-        transform.position = safeSpawnLocation + new Vector3(0, 0.1f, 0);
-        transform.rotation = Quaternion.Euler(0, Random.Range(0f, 360f), 0);
+        transform.SetPositionAndRotation(
+            safeSpawnLocation + new Vector3(0, 0.1f, 0), 
+            Quaternion.Euler(0, Random.Range(0f, 360f), 0)
+        );
 
-        Vector3 targetSpawnPosition = spawner.GetRandomSafePoint();
-        targetSpawnPosition.y = 1.625f;
-        Target.position = targetSpawnPosition;
+        // float dynamicRadius = Mathf.Min(25.0f, 1.0f + (Academy.Instance.StepCount / 1000000f));
+        float dynamicRadius = 5f;
+
+        // Spawn the target CLOSE to the car (Curriculum Learning)
+        // We pick a random direction, multiply by your radius, and add it to the car's position
+        
+        bool foundValidSpawn = false;
+        for (int i = 0; i < 10; i++)
+        {
+            Vector2 randomCircle = Random.insideUnitCircle.normalized * dynamicRadius;
+            Vector3 nearCarPosition = transform.position + new Vector3(randomCircle.x, 0, randomCircle.y);
+            
+            NavMeshHit hit;
+            if (NavMesh.SamplePosition(nearCarPosition, out hit, 5.0f, NavMesh.AllAreas))
+            {
+                Target.position = hit.position + new Vector3(0, 0.05f, 0);
+                foundValidSpawn = true;
+                break;
+            }
+        }
+
+        if (!foundValidSpawn)
+        {
+            Vector3 fallbackPos = spawner.GetRandomSafePoint();
+            Target.position = fallbackPos + new Vector3(0, 0.05f, 0);
+        }
 
         previousDistance = Vector3.Distance(transform.localPosition, Target.localPosition);
     }
@@ -65,6 +90,20 @@ public class CarAgent : Agent
         float[] telemetryData = chassis.GetTelemetryState();
 
         sensor.AddObservation(telemetryData);
+
+        Vector3 relativeTargetPos = transform.InverseTransformPoint(Target.position);
+
+        float maxArenaSize = 20f;
+
+        sensor.AddObservation(relativeTargetPos.x / maxArenaSize);
+        sensor.AddObservation(relativeTargetPos.z / maxArenaSize);
+    }
+
+    void OnCollisionEnter(Collision collision) {
+        if (collision.gameObject.CompareTag("object")) {
+            //SetReward(-1.0f);
+            //EndEpisode();
+        }       
     }
 
     public override void OnActionReceived(ActionBuffers actions)
@@ -86,23 +125,25 @@ public class CarAgent : Agent
 
         // TODO: Rewards system
         // 1. Reached Target (Big Reward)
-        if (currentDistance < 0.2f) {
-            SetReward(2.0f);
+        if (currentDistance < 0.3f) {
+            Debug.Log("Found target");
+            SetReward(5.0f);
             EndEpisode();
         } 
-        // 2. Fell off the platform
-        else if (transform.localPosition.y < -0.2) {
-            SetReward(-1.0f); 
-            EndEpisode();
-        }
         // 3. Still playing
         else {
             float distanceMoved = previousDistance - currentDistance;
             AddReward(distanceMoved); 
-            // Time Penalty
-            AddReward(-0.001f);
             previousDistance = currentDistance;
+
+            // float forwardSpeed = Vector3.Dot(chassis.carRigidbody.linearVelocity, transform.forward);
+            // if(forwardSpeed > 0.5f) {
+            //     float straightness = 1.0f - Mathf.Abs(aiSteering);
+            //     float movementReward = forwardSpeed * 0.0002f * straightness;
+            //     AddReward(movementReward);
+            //}
         }
+
     }
 
     public override void Heuristic(in ActionBuffers actionsOut)
