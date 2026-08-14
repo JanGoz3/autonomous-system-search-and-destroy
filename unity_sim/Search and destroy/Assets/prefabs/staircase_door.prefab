@@ -13,7 +13,7 @@ GameObject:
   - component: {fileID: 6087965681358880490}
   m_Layer: 0
   m_Name: staircase_door
-  m_TagString: Untagged
+  m_TagString: object
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0

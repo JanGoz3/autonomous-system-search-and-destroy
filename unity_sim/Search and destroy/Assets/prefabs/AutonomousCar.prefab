@@ -776,7 +776,7 @@ Rigidbody:
   m_IsKinematic: 0
   m_Interpolate: 0
   m_Constraints: 0
-  m_CollisionDetection: 0
+  m_CollisionDetection: 1
 --- !u!114 &201588704149470634
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -884,6 +884,8 @@ MonoBehaviour:
   chassis: {fileID: -2845163636235054939}
   startingPoint: {fileID: 0}
   Target: {fileID: 0}
+  tgtSpawnR: 1
+  spawner: {fileID: 0}
   steeringSensitivity: 3
   speedSensitivity: 0.25
   turretSensitivity: 4
