@@ -1,5 +1,5 @@
 using UnityEngine;
-using UnityEngine.InputSystem; // <-- Dodaliśmy przestrzeń nazw nowego systemu!
+using UnityEngine.InputSystem;
 
 public class KeyboardController : MonoBehaviour
 {

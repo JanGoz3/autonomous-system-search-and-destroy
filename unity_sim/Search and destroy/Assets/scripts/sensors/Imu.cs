@@ -23,7 +23,7 @@ public class Imu : MonoBehaviour
     public Vector3 cachedAccelerometer = Vector3.zero;
     public Vector3 cachedGyroscope = Vector3.zero;
 
-    void Start()
+    void Awake()
     {
         rb = carRigidbody;
         lastVelocity = rb.GetPointVelocity(transform.position);
@@ -46,15 +46,16 @@ public class Imu : MonoBehaviour
         float currentTime = Time.fixedTime; 
         if (currentTime - lastUpdateTime >= timingBudget)
         {
-            UpdateSensorHardware();
+            float dt = (lastUpdateTime < 0f) ? timingBudget : (currentTime - lastUpdateTime);
+            UpdateSensorHardware(dt);
             lastUpdateTime = currentTime;
         }
     }
 
-    private void UpdateSensorHardware()
+    private void UpdateSensorHardware(float dt)
     {
         Vector3 currentVelocity = rb.GetPointVelocity(transform.position);
-        Vector3 acceleration = (currentVelocity - lastVelocity) / timingBudget;
+        Vector3 acceleration = (currentVelocity - lastVelocity) / dt;
         lastVelocity = currentVelocity;
         
         acceleration -= Physics.gravity; 

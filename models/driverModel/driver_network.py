@@ -18,7 +18,9 @@ class DriverNet(nn.Module):
         self.actor_block = nn.Sequential(
             nn.Linear(in_features, 64),
             nn.ReLU(),
-            nn.Linear(64,64),
+            nn.Linear(64,128),
+            nn.ReLU(),
+            nn.Linear(128,64),
             nn.ReLU(),
             nn.Linear(64, out_features),
             nn.Tanh()
@@ -27,7 +29,9 @@ class DriverNet(nn.Module):
         self.critic_block = nn.Sequential(
             nn.Linear(in_features, 64),
             nn.ReLU(),
-            nn.Linear(64,64),
+            nn.Linear(64,128),
+            nn.ReLU(),
+            nn.Linear(128,64),
             nn.ReLU(),
             nn.Linear(64, 1)
         )
