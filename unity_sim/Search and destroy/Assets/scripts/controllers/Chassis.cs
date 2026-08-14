@@ -63,6 +63,13 @@ public class Chassis : MonoBehaviour
         float maxTof = 4000f;
 
         float[] yoloData = yoloVision.GetYoloState();
+        // if (yoloData != null && yoloData.Length > 0) {
+        //     Debug.Log("Yolo data: " + string.Join(", ", yoloData));
+        // } else {
+        //     Debug.Log("Yolo data: No objects detected.");
+        // }
+
+        bool yoloDetected = yoloData != null && yoloData.Length >= 6;
 
         float[] telemetry = new float[]
         {
@@ -81,12 +88,12 @@ public class Chassis : MonoBehaviour
             
             Mathf.Clamp(tofSensor.GetDistance() / maxTof, 0f, 1f),
 
-            yoloData[0], // Bounding Box Center X
-            yoloData[1], // Bounding Box Center Y
-            yoloData[2], // Bounding Box Width
-            yoloData[3], // Bounding Box Height
-            yoloData[4], // YOLO Confidence Score
-            yoloData[5]  // YOLO Class ID
+            yoloDetected ? yoloData[0] : 0f, // Bounding Box Center X
+            yoloDetected ? yoloData[1] : 0f, // Bounding Box Center Y
+            yoloDetected ? yoloData[2] : 0f, // Bounding Box Width
+            yoloDetected ? yoloData[3] : 0f, // Bounding Box Height
+            yoloDetected ? yoloData[4] : 0f, // YOLO Confidence Score
+            yoloDetected ? yoloData[5] : -1f  // YOLO Class ID
         };
         
         return telemetry;
