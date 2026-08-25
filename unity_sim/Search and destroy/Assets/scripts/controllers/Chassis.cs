@@ -93,7 +93,7 @@ public class Chassis : MonoBehaviour
             yoloDetected ? yoloData[2] : 0f, // Bounding Box Width
             yoloDetected ? yoloData[3] : 0f, // Bounding Box Height
             yoloDetected ? yoloData[4] : 0f, // YOLO Confidence Score
-            yoloDetected ? yoloData[5] : -1f  // YOLO Class ID
+            yoloDetected ? 1f : 0f  // YOLO Class ID
         };
         
         return telemetry;
