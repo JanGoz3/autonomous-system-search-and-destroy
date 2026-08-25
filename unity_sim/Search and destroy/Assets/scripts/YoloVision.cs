@@ -10,8 +10,8 @@ public class YoloVision : MonoBehaviour
     private Worker m_Worker;
     private float[] m_LatestYoloState;
     private Tensor<float> m_InputTensor;
-    private int m_LastInferenceFrame = -1;
-    private const int InferenceInterval = 3; // Run every 3rd frame
+    private const int InferenceInterval = 10; // Run every nth frame
+    private int m_StepCounter = 0;
 
     void Start() 
     {
@@ -24,11 +24,13 @@ public class YoloVision : MonoBehaviour
 
     public float[] GetYoloState() 
     {
-        if (Time.frameCount - m_LastInferenceFrame >= InferenceInterval)
+        // run inference every nth frame
+        if (m_StepCounter % InferenceInterval == 0)
         {
             RunInference();
             m_LastInferenceFrame = Time.frameCount;
         }
+        m_StepCounter++;
         return m_LatestYoloState;
     }
 
