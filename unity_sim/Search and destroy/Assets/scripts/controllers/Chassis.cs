@@ -16,6 +16,8 @@ public class Chassis : MonoBehaviour
     public TofSensor tofSensor;
     public YoloVision yoloVision;
 
+    private float[] m_Telemetry = new float[17];
+
     void Awake() 
     {
         Initialize();
@@ -71,31 +73,30 @@ public class Chassis : MonoBehaviour
 
         bool yoloDetected = yoloData != null && yoloData.Length >= 6;
 
-        float[] telemetry = new float[]
-        {
-            motor.GetCurrentSetSpeed(),
-            steering.GetCurrentSetSwing(),
-            cameraState.pitch,
-            cameraState.yaw,
-            
-            Mathf.Clamp(accel.x / maxAccel, -1f, 1f),
-            Mathf.Clamp(accel.y / maxAccel, -1f, 1f),
-            Mathf.Clamp(accel.z / maxAccel, -1f, 1f),
-            
-            Mathf.Clamp(gyro.x / maxGyro, -1f, 1f),
-            Mathf.Clamp(gyro.y / maxGyro, -1f, 1f),
-            Mathf.Clamp(gyro.z / maxGyro, -1f, 1f),
-            
-            Mathf.Clamp(tofSensor.GetDistance() / maxTof, 0f, 1f),
-
-            yoloDetected ? yoloData[0] : 0f, // Bounding Box Center X
-            yoloDetected ? yoloData[1] : 0f, // Bounding Box Center Y
-            yoloDetected ? yoloData[2] : 0f, // Bounding Box Width
-            yoloDetected ? yoloData[3] : 0f, // Bounding Box Height
-            yoloDetected ? yoloData[4] : 0f, // YOLO Confidence Score
-            yoloDetected ? 1f : 0f  // YOLO Class ID
-        };
+        m_Telemetry[0] = motor.GetCurrentSetSpeed();
+        m_Telemetry[1] = steering.GetCurrentSetSwing();
+        m_Telemetry[2] = cameraState.pitch;
+        m_Telemetry[3] = cameraState.yaw;
         
-        return telemetry;
+        m_Telemetry[4] = Mathf.Clamp(accel.x / maxAccel, -1f, 1f);
+        m_Telemetry[5] = Mathf.Clamp(accel.y / maxAccel, -1f, 1f);
+        m_Telemetry[6] = Mathf.Clamp(accel.z / maxAccel, -1f, 1f);
+        
+        m_Telemetry[7] = Mathf.Clamp(gyro.x / maxGyro, -1f, 1f);
+        m_Telemetry[8] = Mathf.Clamp(gyro.y / maxGyro, -1f, 1f);
+        m_Telemetry[9] = Mathf.Clamp(gyro.z / maxGyro, -1f, 1f);
+        
+        m_Telemetry[10] = Mathf.Clamp(tofSensor.GetDistance() / maxTof, 0f, 1f);
+
+        m_Telemetry[11] = yoloDetected ? yoloData[0] : 0f;
+        m_Telemetry[12] = yoloDetected ? yoloData[1] : 0f;
+        m_Telemetry[13] = yoloDetected ? yoloData[2] : 0f;
+        m_Telemetry[14] = yoloDetected ? yoloData[3] : 0f;
+        m_Telemetry[15] = yoloDetected ? yoloData[4] : 0f;
+        
+        // Remember to mask the Class ID for the Driver network as we discussed!
+        m_Telemetry[16] = yoloDetected ? 1f : 0f;
+        
+        return m_Telemetry;
     }
 }
