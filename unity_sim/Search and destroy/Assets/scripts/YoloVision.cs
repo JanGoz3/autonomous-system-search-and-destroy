@@ -6,6 +6,7 @@ public class YoloVision : MonoBehaviour
     [Header("Inference Config")]
     public ModelAsset yoloModelAsset;
     public RenderTexture cameraRenderTexture;
+    public Camera yoloCamera;
 
     private Worker m_Worker;
     private float[] m_LatestYoloState;
@@ -18,7 +19,6 @@ public class YoloVision : MonoBehaviour
         var model = ModelLoader.Load(yoloModelAsset);
         m_Worker = new Worker(model, BackendType.GPUCompute);
         m_LatestYoloState = new float[6];    
-
         m_InputTensor = new Tensor<float>(new TensorShape(1, 3, 320, 320));
     }
 
@@ -28,7 +28,6 @@ public class YoloVision : MonoBehaviour
         if (m_StepCounter % InferenceInterval == 0)
         {
             RunInference();
-            m_LastInferenceFrame = Time.frameCount;
         }
         m_StepCounter++;
         return m_LatestYoloState;
@@ -36,7 +35,9 @@ public class YoloVision : MonoBehaviour
 
     private void RunInference() 
     {
-        if (cameraRenderTexture == null) return;    
+        if (cameraRenderTexture == null || yoloCamera == null) return;    
+
+        yoloCamera.Render();
 
         TextureConverter.ToTensor(cameraRenderTexture, m_InputTensor, new TextureTransform());
         m_Worker.Schedule(m_InputTensor);
