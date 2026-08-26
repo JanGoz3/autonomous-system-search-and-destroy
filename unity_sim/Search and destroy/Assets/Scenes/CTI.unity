@@ -359,6 +359,96 @@ PrefabInstance:
     m_AddedGameObjects: []
     m_AddedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: 6e201d291709c4947b87f26e5dbf6949, type: 3}
+--- !u!1 &1168661414 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: 482969662346047670, guid: 6e201d291709c4947b87f26e5dbf6949, type: 3}
+  m_PrefabInstance: {fileID: 8517203323252249285}
+  m_PrefabAsset: {fileID: 0}
+--- !u!4 &1168661415 stripped
+Transform:
+  m_CorrespondingSourceObject: {fileID: 4620571974852468165, guid: 6e201d291709c4947b87f26e5dbf6949, type: 3}
+  m_PrefabInstance: {fileID: 8517203323252249285}
+  m_PrefabAsset: {fileID: 0}
+--- !u!114 &1168661417
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1168661414}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e902fd6bc1a5c96448267136b4619ab6, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::DTDataLogger
+  chassis: {fileID: 1168661422}
+  carTransform: {fileID: 1168661415}
+  autoExplorer: {fileID: 1168661424}
+  logIntervalSeconds: 0.1
+  outputFolder: DTDataset
+  autoEndAfterSteps: 1000
+  isRecording: 0
+  currentEpisodeId: 0
+  stepsInCurrentChunk: 0
+--- !u!114 &1168661422 stripped
+MonoBehaviour:
+  m_CorrespondingSourceObject: {fileID: 9117905955036959718, guid: 6e201d291709c4947b87f26e5dbf6949, type: 3}
+  m_PrefabInstance: {fileID: 8517203323252249285}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1168661414}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 959d11107d79a9b4a8ff3b9c2bc56bcd, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Chassis
+--- !u!114 &1168661424
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1168661414}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9d878b7502f4b884a96a9018b221fba1, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::AutoExplorer
+  target: {fileID: 1972327636}
+  carTransform: {fileID: 1168661415}
+  spawner: {fileID: 0}
+  retargetInterval: 10
+  minTargetDistance: 5
+  maxTargetDistance: 5
+  stuckCheckWindow: 3
+  stuckDistanceThreshold: 0.3
+  isExploring: 0
+--- !u!114 &1168661434
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1168661414}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c0685c46e5dc5ba4cafddaa6b3735dbd, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::DTInference
+  dtModelAsset: {fileID: 5022602860645237092, guid: 72be7788b80d8f545b59a9efc1292e02, type: 3}
+  chassis: {fileID: 1168661422}
+  carTransform: {fileID: 1168661415}
+  target: {fileID: 1972327636}
+  decisionInterval: 1.5
+  contextLength: 20
+  stateDim: 20
+  actionDim: 2
+  initialTargetReturn: 40
+  gridCellSize: 1
+  coverageReward: 1
+  stepPenalty: -0.01
+  isActive: 0
+  currentReturnToGo: 0
+  decisionCount: 0
 --- !u!1 &1479766194
 GameObject:
   m_ObjectHideFlags: 0
@@ -496,6 +586,11 @@ PrefabInstance:
     m_AddedGameObjects: []
     m_AddedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: 6e201d291709c4947b87f26e5dbf6949, type: 3}
+--- !u!4 &1972327636 stripped
+Transform:
+  m_CorrespondingSourceObject: {fileID: 4043719884949141740, guid: 6e201d291709c4947b87f26e5dbf6949, type: 3}
+  m_PrefabInstance: {fileID: 8517203323252249285}
+  m_PrefabAsset: {fileID: 0}
 --- !u!1 &2091212260
 GameObject:
   m_ObjectHideFlags: 0
@@ -583,14 +678,34 @@ PrefabInstance:
     serializedVersion: 3
     m_TransformParent: {fileID: 0}
     m_Modifications:
+    - target: {fileID: 1367154458079631583, guid: 6e201d291709c4947b87f26e5dbf6949, type: 3}
+      propertyPath: MaxStep
+      value: 0
+      objectReference: {fileID: 0}
     - target: {fileID: 3148839876070546964, guid: 6e201d291709c4947b87f26e5dbf6949, type: 3}
       propertyPath: m_Name
       value: Training area
+      objectReference: {fileID: 0}
+    - target: {fileID: 4620571974852468165, guid: 6e201d291709c4947b87f26e5dbf6949, type: 3}
+      propertyPath: m_LocalPosition.x
+      value: 0.374
+      objectReference: {fileID: 0}
+    - target: {fileID: 4620571974852468165, guid: 6e201d291709c4947b87f26e5dbf6949, type: 3}
+      propertyPath: m_LocalPosition.y
+      value: -0.001
+      objectReference: {fileID: 0}
+    - target: {fileID: 4620571974852468165, guid: 6e201d291709c4947b87f26e5dbf6949, type: 3}
+      propertyPath: m_LocalPosition.z
+      value: -4.524
       objectReference: {fileID: 0}
     - target: {fileID: 5912225504694436308, guid: 6e201d291709c4947b87f26e5dbf6949, type: 3}
       propertyPath: m_Model
       value: 
       objectReference: {fileID: 5022602860645237092, guid: 4960fbb003479f243ab838c7870fd15f, type: 3}
+    - target: {fileID: 5912225504694436308, guid: 6e201d291709c4947b87f26e5dbf6949, type: 3}
+      propertyPath: m_BehaviorType
+      value: 0
+      objectReference: {fileID: 0}
     - target: {fileID: 8422614555799960371, guid: 6e201d291709c4947b87f26e5dbf6949, type: 3}
       propertyPath: m_LocalPosition.x
       value: 7.38
@@ -634,7 +749,16 @@ PrefabInstance:
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
-    m_AddedComponents: []
+    m_AddedComponents:
+    - targetCorrespondingSourceObject: {fileID: 482969662346047670, guid: 6e201d291709c4947b87f26e5dbf6949, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 1168661417}
+    - targetCorrespondingSourceObject: {fileID: 482969662346047670, guid: 6e201d291709c4947b87f26e5dbf6949, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 1168661424}
+    - targetCorrespondingSourceObject: {fileID: 482969662346047670, guid: 6e201d291709c4947b87f26e5dbf6949, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 1168661434}
   m_SourcePrefab: {fileID: 100100000, guid: 6e201d291709c4947b87f26e5dbf6949, type: 3}
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
