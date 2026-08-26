@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 import torch.nn as nn
-
+torch.backends.mha.set_fastpath_enabled(False)
 
 def discount_cumsum(x, gamma=1.0):
 
