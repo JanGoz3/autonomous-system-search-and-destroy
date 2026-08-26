@@ -126,9 +126,9 @@ public class CarAgent : Agent
         // TODO: Rewards system
         // 1. Reached Target (Big Reward)
         if (currentDistance < 0.3f) {
-            Debug.Log("Found target");
-            SetReward(5.0f);
-            EndEpisode();
+            //Debug.Log("Found target");
+            //SetReward(5.0f);
+            //EndEpisode();
         } 
         // 3. Still playing
         else {
