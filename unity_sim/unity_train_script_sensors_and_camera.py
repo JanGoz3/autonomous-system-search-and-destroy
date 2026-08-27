@@ -132,7 +132,13 @@ try:
     # This assigns each Unity agent a permanent "row index" (0 to 9) in our PyTorch arrays. 
     id_to_idx = {agent_id: i for i, agent_id in enumerate(decision_steps.agent_id)}
 
-    buffer = RolloutBuffer(nr_of_agents=nr_of_agents, device=device, action_space= ACTION_SPACE, state_space = STATE_SPACE * STACKED_VECTORS)
+    buffer = RolloutBuffer(
+        nr_of_agents=nr_of_agents, 
+        device=device, 
+        action_space= ACTION_SPACE, 
+        state_space = STATE_SPACE * STACKED_VECTORS,
+        buffer_size=10240
+    )
 
     # TODO: optionally add retrieving from the environment action space and state space
 
