@@ -16,24 +16,24 @@ class DriverNet(nn.Module):
         self.continuous_shape = nn.Parameter(torch.Tensor([out_features]), requires_grad=False)
 
         self.actor_block = nn.Sequential(
-            nn.Linear(in_features, 64),
+            nn.Linear(in_features, 256),
             nn.ReLU(),
-            nn.Linear(64,128),
+            nn.Linear(256,256),
             nn.ReLU(),
-            nn.Linear(128,64),
+            nn.Linear(256,128),
             nn.ReLU(),
-            nn.Linear(64, out_features),
+            nn.Linear(128, out_features),
             nn.Tanh()
         )
 
         self.critic_block = nn.Sequential(
-            nn.Linear(in_features, 64),
+            nn.Linear(in_features, 256),
             nn.ReLU(),
-            nn.Linear(64,128),
+            nn.Linear(256,256),
             nn.ReLU(),
-            nn.Linear(128,64),
+            nn.Linear(256,128),
             nn.ReLU(),
-            nn.Linear(64, 1)
+            nn.Linear(128, 1)
         )
 
     def forward(self, state):
