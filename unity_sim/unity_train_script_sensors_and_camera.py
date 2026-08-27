@@ -80,6 +80,8 @@ MINIBATCH_SIZE = 512
 CLIP_COEF = 0.2
 ENT_COEF = 0.01
 VF_COEF = 0.5
+CHECKPOINT_FILE = "driver_checkpoint.pth"
+BEST_CHECKPOINT_FILE = "best_driver_checkpoint.pth"
 
 engine_channel = EngineConfigurationChannel()
 engine_channel.set_configuration_parameters(time_scale=5.0)
@@ -87,6 +89,33 @@ env = UnityEnvironment(file_name=None, side_channels=[engine_channel])
 model = DriverNet(in_features=STATE_SPACE * STACKED_VECTORS, out_features=ACTION_SPACE).to(device)
 optimizer = optim.Adam(params=model.parameters(), lr=LEARNING_RATE)
 tracker = TrainingTracker(window_size=100)
+
+# ==========================================
+# LOAD CHECKPOINT (IF IT EXISTS)
+# ==========================================
+start_steps = 0
+if os.path.exists(CHECKPOINT_FILE):
+    print(f"Loading checkpoint from {CHECKPOINT_FILE}...")
+    checkpoint = torch.load(CHECKPOINT_FILE, map_location=device)
+    model.load_state_dict(checkpoint['model_state_dict'])
+    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+
+    for param_group in optimizer.param_groups:
+            param_group['lr'] = LEARNING_RATE
+    
+    if 'tracker_history' in checkpoint:
+        tracker.history_steps = checkpoint['tracker_history']['steps']
+        tracker.history_mean_rewards = checkpoint['tracker_history']['means']
+        tracker.history_std_rewards = checkpoint['tracker_history']['stds']
+        if len(tracker.history_steps) > 0:
+            start_steps = tracker.history_steps[-1]
+            
+    print(f"Resuming training from step {start_steps}!")
+else:
+    print("No checkpoint found. Starting training from scratch.")
+
+best_mean_reward = max(tracker.history_mean_rewards) if len(tracker.history_mean_rewards) > 0 else -float('inf')
+# ==========================================
 
 try:
     env.reset()
@@ -98,7 +127,7 @@ try:
     decision_steps, terminal_steps = env.get_steps(behavior_name)
     nr_of_agents = len(decision_steps)
     current_episode_rewards = np.zeros(nr_of_agents)
-    total_env_steps = 0
+    total_env_steps = start_steps
     
     # This assigns each Unity agent a permanent "row index" (0 to 9) in our PyTorch arrays. 
     id_to_idx = {agent_id: i for i, agent_id in enumerate(decision_steps.agent_id)}
@@ -267,6 +296,30 @@ try:
 
 
             buffer.reset()
+
+            # ==========================================
+            # SAVE CHECKPOINT
+            # ==========================================
+            save_data = {
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'tracker_history': {
+                    'steps': tracker.history_steps,
+                    'means': tracker.history_mean_rewards,
+                    'stds': tracker.history_std_rewards
+                }
+            }
+            torch.save(save_data, CHECKPOINT_FILE)
+            print(f"Checkpoint successfully saved to {CHECKPOINT_FILE}")
+
+            # Save a dedicated copy if we beat our personal best mean reward
+            if mean_rew > best_mean_reward:
+                best_mean_reward = mean_rew
+                torch.save(save_data, BEST_CHECKPOINT_FILE)
+                print(f"*** NEW ALL-TIME BEST MODEL. Saved to {BEST_CHECKPOINT_FILE} (Reward: {mean_rew:.2f}) ***")
+
+            # ==========================================
+
 
 except KeyboardInterrupt:
     print('stopped by user')
