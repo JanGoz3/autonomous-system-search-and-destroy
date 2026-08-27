@@ -11,7 +11,7 @@ public class YoloVision : MonoBehaviour
     private Worker m_Worker;
     private float[] m_LatestYoloState;
     private Tensor<float> m_InputTensor;
-    private const int InferenceInterval = 10; // Run every nth frame
+    private const int InferenceInterval = 10; // Run every nth physics tick
     private int m_StepCounter = 0;
 
     void Start() 
