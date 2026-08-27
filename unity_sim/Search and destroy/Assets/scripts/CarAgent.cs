@@ -10,14 +10,8 @@ public class CarAgent : Agent
     [Header("Hardware Link")]
     public Chassis chassis;
 
-    [Header("Training Environment")]
-    public Transform startingPoint;
-
     [Header("Target Object")]
     public Transform Target;
-
-    [Header("Target Spawn Radius")]
-    public float tgtSpawnR = 2;
 
     [Header("Navmesh Target Spawner")]
     public LocalNavMeshSpawner spawner;
