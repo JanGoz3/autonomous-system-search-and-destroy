@@ -234,9 +234,9 @@ try:
             # flattening the data for PPO
             # ex. 2048 steps * 10 agents into 2048 flat rows
 
-            b_states = buffer.states.view(-1, STATE_SPACE * STACKED_VECTORS).to(device)
-            b_actions = buffer.actions.view(-1, ACTION_SPACE).to(device)
-            b_logprobs = buffer.logprobs.view(-1).to(device)
+            b_states = buffer.states.view(-1, STATE_SPACE * STACKED_VECTORS)
+            b_actions = buffer.actions.view(-1, ACTION_SPACE)
+            b_logprobs = buffer.logprobs.view(-1)
             b_advantages = advantages.view(-1).to(device)
             b_returns = returns.view(-1).to(device)
 
