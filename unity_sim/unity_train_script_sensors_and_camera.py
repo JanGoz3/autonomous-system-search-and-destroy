@@ -136,18 +136,15 @@ try:
 
     # TODO: optionally add retrieving from the environment action space and state space
 
+    state_tensor = torch.zeros((nr_of_agents, STATE_SPACE * STACKED_VECTORS), dtype=torch.float32).to(device)
+    for i, agent_id in enumerate(decision_steps.agent_id):
+        if agent_id in id_to_idx:
+            state_tensor[id_to_idx[agent_id]] = torch.tensor(decision_steps.obs[0][i], dtype=torch.float32).to(device)
+    for i, agent_id in enumerate(terminal_steps.agent_id):
+        if agent_id in id_to_idx:
+            state_tensor[id_to_idx[agent_id]] = torch.tensor(terminal_steps.obs[0][i], dtype=torch.float32).to(device)
+
     while True:
-        # ask unity for the current state of the agents
-        decision_steps, terminal_steps = env.get_steps(behavior_name)
-
-        state_tensor = torch.zeros((nr_of_agents, STATE_SPACE * STACKED_VECTORS), dtype=torch.float32).to(device)
-        for i, agent_id in enumerate(decision_steps.agent_id):
-            if agent_id in id_to_idx:
-                state_tensor[id_to_idx[agent_id]] = torch.tensor(decision_steps.obs[0][i], dtype=torch.float32).to(device)
-        for i, agent_id in enumerate(terminal_steps.agent_id):
-            if agent_id in id_to_idx:
-                state_tensor[id_to_idx[agent_id]] = torch.tensor(terminal_steps.obs[0][i], dtype=torch.float32).to(device)
-
         # here the agent is just playing, not learning yet
         with torch.no_grad():
             action_tensor, log_prob, entropy, value = model.get_action_and_value(state_tensor)
@@ -169,6 +166,8 @@ try:
         # get new outcomes from the step we just took
         decision_steps, terminal_steps = env.get_steps(behavior_name)
 
+        next_state_tensor = torch.zeros((nr_of_agents, STATE_SPACE * STACKED_VECTORS), dtype=torch.float32).to(device)
+
         current_rewards = torch.zeros(nr_of_agents).to(device)
         current_dones = torch.zeros(nr_of_agents).to(device)
 
@@ -179,7 +178,7 @@ try:
                 reward = float(decision_steps.reward[i])
                 current_rewards[idx] = reward
                 current_dones[idx] = 0.0
-
+                next_state_tensor[idx] = torch.tensor(decision_steps.obs[0][i], dtype=torch.float32).to(device)
                 current_episode_rewards[idx] += reward
 
         # match rewards to agents that crashed/finished
@@ -189,12 +188,13 @@ try:
                 reward = float(terminal_steps.reward[i])
                 current_rewards[idx] = reward
                 current_dones[idx] = 1.0
-
+                next_state_tensor[idx] = torch.tensor(terminal_steps.obs[0][i], dtype=torch.float32).to(device)
                 current_episode_rewards[idx] += reward
                 tracker.add_reward(current_episode_rewards[idx])
                 current_episode_rewards[idx] = 0.0
 
         buffer.insert(state_tensor, action_tensor, log_prob, value, current_rewards, current_dones)
+        state_tensor = next_state_tensor
 
         total_env_steps += nr_of_agents
 
@@ -212,15 +212,7 @@ try:
             print("buffer full. Training.")
 
             with torch.no_grad():
-                next_state_tensor = torch.zeros((nr_of_agents, STATE_SPACE * STACKED_VECTORS), dtype=torch.float32).to(device)
-                for i, agent_id in enumerate(decision_steps.agent_id):
-                    if agent_id in id_to_idx:
-                        next_state_tensor[id_to_idx[agent_id]] = torch.tensor(decision_steps.obs[0][i], dtype=torch.float32).to(device)
-                for i, agent_id in enumerate(terminal_steps.agent_id):
-                    if agent_id in id_to_idx:
-                        next_state_tensor[id_to_idx[agent_id]] = torch.tensor(terminal_steps.obs[0][i], dtype=torch.float32).to(device)
-
-                next_value = model.get_value(next_state_tensor).squeeze()
+                next_value = model.get_value(state_tensor).flatten()
 
             advantages = torch.zeros_like(buffer.rewards).to(device)
             last_gae_lam = 0
