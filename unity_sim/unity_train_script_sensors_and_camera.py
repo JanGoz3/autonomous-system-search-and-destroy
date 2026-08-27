@@ -8,12 +8,21 @@ from torch.nn.utils import clip_grad_norm_
 from collections import deque
 import numpy as np
 from mlagents_envs.side_channel.engine_configuration_channel import EngineConfigurationChannel
-import onnx
-from onnx import helper, TensorProto
+import time
+
+# use non-interactive backend for headless plotting.
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+
+import os
 
 class TrainingTracker:
     def __init__(self, window_size = 100):
         self.episode_rewards = deque(maxlen=window_size)
+        self.history_steps = []
+        self.history_mean_rewards = []
+        self.history_std_rewards = []
 
     def add_reward(self, reward):
         self.episode_rewards.append(reward)
@@ -22,6 +31,39 @@ class TrainingTracker:
         if len(self.episode_rewards) == 0:
             return 0.0, 0.0
         return np.mean(self.episode_rewards), np.std(self.episode_rewards)
+
+    def log_progress(self, total_steps):
+        mean_rew, std_rew = self.get_stats()
+        self.history_steps.append(total_steps)
+        self.history_mean_rewards.append(mean_rew)
+        self.history_std_rewards.append(std_rew)
+        self.save_plot()
+
+    def save_plot(self, filename="training_progress.png"):
+        if len(self.history_steps) == 0:
+            return
+
+        plt.figure(figsize=(10, 5))
+        steps = np.array(self.history_steps)
+        means = np.array(self.history_mean_rewards)
+        stds = np.array(self.history_std_rewards)
+
+        # Plot mean reward curve
+        plt.plot(steps, means, label='Mean Reward (Last 100)', color='b', linewidth=2)
+        # Plot standard deviation shading band
+        plt.fill_between(steps, means - stds, means + stds, color='b', alpha=0.15, label='Std Deviation')
+
+        plt.title('Autonomous Car RL Training Progress')
+        plt.xlabel('Total Agent Steps')
+        plt.ylabel('Reward')
+        plt.grid(True, linestyle='--', alpha=0.6)
+        plt.legend(loc='upper left')
+        plt.tight_layout()
+
+        # Save overwrite file
+        plt.savefig(filename)
+        plt.close()
+
 
 print('running... waiting for connection with Unity simulation')
 
@@ -51,7 +93,8 @@ try:
     behavior_name = list(env.behavior_specs.keys())[0]   
 
     print("Connected! Running... Press Ctrl+C to stop.")
-
+    start_time = time.time()
+    # ask unity for the current state of the agents
     decision_steps, terminal_steps = env.get_steps(behavior_name)
     nr_of_agents = len(decision_steps)
     current_episode_rewards = np.zeros(nr_of_agents)
@@ -127,11 +170,15 @@ try:
         total_env_steps += nr_of_agents
 
         if buffer.step_counter == buffer.buffer_size:
+            tracker.log_progress(total_env_steps)
             mean_rew, std_rew = tracker.get_stats()
+            current_time = time.time()
+            passed_time = current_time - start_time
             print(f"==================================================")
             print(f"Total Agent Steps: {total_env_steps}")
             print(f"Mean Reward (Last 100 episodes): {mean_rew:.2f}")
             print(f"Std Reward  (Last 100 episodes): {std_rew:.2f}")
+            print(f"Time Elapsed: {passed_time:.2f} seconds")
             print(f"==================================================")
             print("buffer full. Training.")
 
