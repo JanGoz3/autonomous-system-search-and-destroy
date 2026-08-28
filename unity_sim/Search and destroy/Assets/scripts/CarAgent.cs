@@ -27,52 +27,56 @@ public class CarAgent : Agent
     private float m_currentYaw = 0f;
     private float previousDistance = 0f;
     private float curriculumProgress = 0f;
-    private float spawnRadius = 3f;
+    private float spawnRadius = 1f;
     private float maxSpawnAngle = 45;
+
+    [Header("Training mode")]
+    public bool trainingMode = true;
     public override void OnEpisodeBegin()
     {
-
-        curriculumProgress = Mathf.Clamp01(Academy.Instance.TotalStepCount / 1e6f);
-
-        if (chassis != null)
-        {
-            chassis.SetNeutral();
-            
-            if (chassis.carRigidbody != null)
+        if (trainingMode) {
+            // curriculumProgress = Mathf.Clamp01(Academy.Instance.TotalStepCount / 1e6f);
+            curriculumProgress = 1.0f;
+            if (chassis != null)
             {
-                chassis.carRigidbody.linearVelocity = Vector3.zero;
-                chassis.carRigidbody.angularVelocity = Vector3.zero;
+                chassis.SetNeutral();
+                
+                if (chassis.carRigidbody != null)
+                {
+                    chassis.carRigidbody.linearVelocity = Vector3.zero;
+                    chassis.carRigidbody.angularVelocity = Vector3.zero;
+                }
             }
-        }
 
-        Vector3 safeSpawnLocation = spawner.GetRandomSafePoint();
+            Vector3 safeSpawnLocation = spawner.GetRandomSafePoint();
 
-        transform.SetPositionAndRotation(
-            safeSpawnLocation + new Vector3(0, 0.1f, 0), 
-            Quaternion.Euler(0, Random.Range(0f, 360f), 0)
-        );
+            transform.SetPositionAndRotation(
+                safeSpawnLocation + new Vector3(0, 0.1f, 0), 
+                Quaternion.Euler(0, Random.Range(0f, 360f), 0)
+            );
         
         // TARGET SPAWN ##############
-        bool foundValidSpawn = false;
-        for (int i = 0; i < 10; i++)
-        {
-            float randomAngle = Random.Range(-maxSpawnAngle, maxSpawnAngle);
-            Vector3 spawnDirection = Quaternion.Euler(0, randomAngle, 0) * transform.forward;
-            Vector3 nearCarPosition = transform.position + (spawnDirection * spawnRadius);
-            
-            NavMeshHit hit;
-            if (NavMesh.SamplePosition(nearCarPosition, out hit, 5.0f, NavMesh.AllAreas))
+            bool foundValidSpawn = false;
+            for (int i = 0; i < 10; i++)
             {
-                Target.position = hit.position + new Vector3(0, 0.05f, 0);
-                foundValidSpawn = true;
-                break;
+                float randomAngle = Random.Range(-maxSpawnAngle, maxSpawnAngle);
+                Vector3 spawnDirection = Quaternion.Euler(0, randomAngle, 0) * transform.forward;
+                Vector3 nearCarPosition = transform.position + (spawnDirection * spawnRadius);
+                
+                NavMeshHit hit;
+                if (NavMesh.SamplePosition(nearCarPosition, out hit, 5.0f, NavMesh.AllAreas))
+                {
+                    Target.position = hit.position + new Vector3(0, 0.05f, 0);
+                    foundValidSpawn = true;
+                    break;
+                }
             }
-        }
 
-        if (!foundValidSpawn)
-        {
-            Vector3 fallbackPos = spawner.GetRandomSafePoint();
-            Target.position = fallbackPos + new Vector3(0, 0.05f, 0);
+            if (!foundValidSpawn)
+            {
+                Vector3 fallbackPos = spawner.GetRandomSafePoint();
+                Target.position = fallbackPos + new Vector3(0, 0.05f, 0);
+            }   
         }
         // ###########################
 
@@ -82,7 +86,6 @@ public class CarAgent : Agent
     public override void CollectObservations(VectorSensor sensor)
     {
         if (chassis == null) return;
-
         float[] telemetryData = chassis.GetTelemetryState();
 
         sensor.AddObservation(telemetryData);
@@ -96,10 +99,12 @@ public class CarAgent : Agent
     }
 
     void OnCollisionEnter(Collision collision) {
-        if (collision.gameObject.CompareTag("object")) {
-            SetReward(-1.0f);
-            EndEpisode();
-        }       
+        if (trainingMode) {
+            if (collision.gameObject.CompareTag("object")) {
+                SetReward(-1.0f);
+                EndEpisode();
+            }       
+        }
     }
 
     public override void OnActionReceived(ActionBuffers actions)
@@ -125,9 +130,14 @@ public class CarAgent : Agent
         // REWARDS SYSTEM
         // 1. Reached Target (Big Reward)
         // Mathf.Lerp(A, B, t): Stands for "Linear Interpolation". It blends between value A and value B based on a percentage t.
-        if (currentDistance < Mathf.Lerp(2.0f, 0.3f, curriculumProgress)) {
+        if (trainingMode && currentDistance < Mathf.Lerp(0.7f, 0.3f, curriculumProgress)) {
             //Debug.Log("Found target");
-            SetReward(25.0f);
+
+            Vector3 directionToTarget = (Target.position - transform.position).normalized;
+            float alignment = Vector3.Dot(transform.forward, directionToTarget);
+            float formBonus = Mathf.Clamp01(alignment);
+            float finalWinReward = 15.0f + (10.0f * formBonus);
+            SetReward(finalWinReward);
             EndEpisode();
         } 
         // 3. Still playing
