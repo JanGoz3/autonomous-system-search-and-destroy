@@ -13,6 +13,7 @@ public struct DTStepData
     public float posZ;
     public float yaw;
     public float[] telemetry; // 17 wartości z Chassis.GetTelemetryState()
+    public bool collision;    // NOWOSC: czy w tym kroku wystapila realna kolizja (z CarAgent)
 }
 
 public class DTDataLogger : MonoBehaviour
@@ -20,14 +21,17 @@ public class DTDataLogger : MonoBehaviour
     [Header("References")]
     public Chassis chassis;
     public Transform carTransform;
-    public AutoExplorer autoExplorer;
+    public AutoExplorer autoExplorer; // opcjonalne - jeśli chcesz automatyczną eksplorację
+    public CarAgent carAgent; // NOWOSC: potrzebne do odczytu flagi kolizji
 
     [Header("Recording Settings")]
     public float logIntervalSeconds = 0.1f; // 10 Hz
     public string outputFolder = "DTDataset";
+    [Tooltip("Unikalny prefiks dla tej instancji (np. przy kilku rownoleglych arenach/autach), zeby pliki CSV z roznych aren sie nie nadpisywaly. Zostaw puste dla pojedynczego auta.")]
+    public string instancePrefix = "";
 
-    [Header("Auto-Chunking (automatyczny podział na epizody)")]
-    [Tooltip("Po ilu zalogowanych krokach automatycznie zapisac fragment jako osobny epizod, 0 = wylaczone (tylko reczne R/T/Y).")]
+    [Header("Auto-Chunking (automatyczne krojenie na epizody)")]
+    [Tooltip("Po ilu zalogowanych krokach automatycznie zapisac fragment jako osobny epizod i kontynuowac dalej. 0 = wylaczone (tylko reczne R/T/Y).")]
     public int autoEndAfterSteps = 800;
 
     [Header("Runtime State (read-only)")]
@@ -43,11 +47,20 @@ public class DTDataLogger : MonoBehaviour
     {
         chassis = GetComponent<Chassis>();
         carTransform = transform;
+        carAgent = GetComponent<CarAgent>();
     }
 
     void Awake()
     {
+        // Wazne: bez tego, kazde ponowne wejscie w Play Mode zaczynaloby
+        // numeracje epizodow od 0, NADPISUJAC pliki z poprzednich sesji
+        // nagrywania o tych samych numerach!
         currentEpisodeId = GetNextAvailableEpisodeId();
+    }
+
+    private string FilePrefix()
+    {
+        return string.IsNullOrEmpty(instancePrefix) ? "episode_" : $"{instancePrefix}_episode_";
     }
 
     private int GetNextAvailableEpisodeId()
@@ -55,12 +68,13 @@ public class DTDataLogger : MonoBehaviour
         string dir = Path.Combine(Application.persistentDataPath, outputFolder);
         if (!Directory.Exists(dir)) return 0;
 
+        string prefix = FilePrefix();
         int maxId = -1;
-        string[] files = Directory.GetFiles(dir, "episode_*.csv");
+        string[] files = Directory.GetFiles(dir, $"{prefix}*.csv");
         foreach (string f in files)
         {
-            string nameOnly = Path.GetFileNameWithoutExtension(f);
-            string numberPart = nameOnly.Substring("episode_".Length);
+            string nameOnly = Path.GetFileNameWithoutExtension(f); // np. "area1_episode_0007" albo "episode_0007"
+            string numberPart = nameOnly.Substring(prefix.Length);
             if (int.TryParse(numberPart, out int id))
             {
                 if (id > maxId) maxId = id;
@@ -68,8 +82,8 @@ public class DTDataLogger : MonoBehaviour
         }
 
         int nextId = maxId + 1;
-        Debug.Log($"[DTDataLogger] Znaleziono istniejace pliki w {dir}, "
-                   + $"kontynuuje numeracje od episode_{nextId:D4}.csv");
+        Debug.Log($"[DTDataLogger:{instancePrefix}] Znaleziono istniejace pliki w {dir}, "
+                   + $"kontynuuje numeracje od {prefix}{nextId:D4}.csv");
         return nextId;
     }
 
@@ -83,6 +97,8 @@ public class DTDataLogger : MonoBehaviour
 
         LogStep();
 
+        // Auto-chunking: co autoEndAfterSteps krokow zapisujemy fragment
+        // i kontynuujemy dalej BEZ przerywania jazdy/eksploracji.
         if (autoEndAfterSteps > 0 && buffer.Count >= autoEndAfterSteps)
         {
             SaveCurrentChunkAndContinue();
@@ -93,19 +109,28 @@ public class DTDataLogger : MonoBehaviour
     {
         if (chassis == null || carTransform == null) return;
 
+        bool collisionFlag = false;
+        if (carAgent != null)
+        {
+            collisionFlag = carAgent.hadCollisionThisStep;
+            carAgent.hadCollisionThisStep = false; // reset po odczycie, zeby nie "przecieklo" do kolejnego kroku
+        }
+
         var step = new DTStepData
         {
             t = stepCounter++,
             posX = carTransform.position.x,
             posZ = carTransform.position.z,
             yaw = carTransform.eulerAngles.y,
-            telemetry = chassis.GetTelemetryState() // 17 wartości
+            telemetry = chassis.GetTelemetryState(), // 17 wartości
+            collision = collisionFlag
         };
 
         buffer.Add(step);
         stepsInCurrentChunk = buffer.Count;
     }
 
+    // Wywołuj żeby rozpocząć CAŁĄ sesję nagrywania (recznie, klawisz R)
     public void StartEpisode()
     {
         buffer.Clear();
@@ -120,6 +145,8 @@ public class DTDataLogger : MonoBehaviour
                    + $"auto-chunk co {autoEndAfterSteps} krokow");
     }
 
+    // Automatyczne "krojenie": zapisz obecny fragment jako plik, zresetuj bufor,
+    // ale NIE zatrzymuj nagrywania ani eksploracji - kontynuuj dalej bez przerwy.
     private void SaveCurrentChunkAndContinue()
     {
         SaveEpisodeToCsv();
@@ -128,9 +155,11 @@ public class DTDataLogger : MonoBehaviour
         buffer.Clear();
         stepCounter = 0;
         stepsInCurrentChunk = 0;
-
+        // uwaga: NIE resetujemy timer ani isRecording, NIE ruszamy autoExplorer -
+        // jazda i eksploracja trwaja nieprzerwanie, tylko zaczynamy nowy plik
     }
 
+    // Wywołuj żeby zakończyć CAŁĄ sesję (recznie, klawisz T lub Y)
     public void EndEpisode(bool discard = false)
     {
         isRecording = false;
@@ -155,12 +184,13 @@ public class DTDataLogger : MonoBehaviour
     {
         string dir = Path.Combine(Application.persistentDataPath, outputFolder);
         Directory.CreateDirectory(dir);
-        string path = Path.Combine(dir, $"episode_{currentEpisodeId:D4}.csv");
+        string path = Path.Combine(dir, $"{FilePrefix()}{currentEpisodeId:D4}.csv");
 
         var sb = new StringBuilder();
 
         sb.Append("t,posX,posZ,yaw");
         for (int i = 0; i < 17; i++) sb.Append($",telem_{i}");
+        sb.Append(",collision");
         sb.AppendLine();
 
         foreach (var s in buffer)
@@ -174,6 +204,8 @@ public class DTDataLogger : MonoBehaviour
             {
                 sb.Append(",").Append(s.telemetry[i].ToString(CultureInfo.InvariantCulture));
             }
+
+            sb.Append(",").Append(s.collision ? "1" : "0");
 
             sb.AppendLine();
         }
