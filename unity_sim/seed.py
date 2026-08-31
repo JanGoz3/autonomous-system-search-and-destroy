@@ -1,212 +1,120 @@
-import pickle
-
 import numpy as np
 import torch
-import torch.nn as nn
 
-torch.backends.mha.set_fastpath_enabled(False)
-
+import train_dt
 from decision_transformer import DecisionTransformer
+from test_copycat import (predict_autoregressive, build_windows,
+                          predict_batched, angular_error_deg, prep)
 
-
-DATASET_FILE = "dt_dataset.pkl"
-SEEDS_TO_TEST = [0, 1, 2, 3, 4]   # kilka roznych podzialow train/val
-CONTEXT_LENGTH = 20
-HIDDEN_SIZE = 128
-N_LAYER = 3
-N_HEAD = 4
-DROPOUT = 0.1
-
-BATCH_SIZE = 32
-LEARNING_RATE = 1e-4
-WEIGHT_DECAY = 1e-4
-GRAD_NORM_CLIP = 0.25
-
+SEEDS_TO_TEST = [0, 1, 2, 3, 4]
 NUM_TRAIN_ITERS = 1500
-NUM_HELDOUT_EPISODES = 2
-
-RETURN_SCALE = 50.0
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 
-def load_dataset(path):
-    with open(path, "rb") as f:
-        return pickle.load(f)
-
-
-def compute_state_normalization(trajectories):
-    all_states = np.concatenate([t["states"] for t in trajectories], axis=0)
-    mean = all_states.mean(axis=0)
-    std = all_states.std(axis=0) + 1e-6
-    return mean.astype(np.float32), std.astype(np.float32)
-
-
-def get_batch(trajectories, batch_size, K, state_dim, act_dim, state_mean, state_std, max_ep_len, device):
-    lengths = np.array([t["states"].shape[0] for t in trajectories], dtype=np.float32)
-    p_sample = lengths / lengths.sum()
-    batch_inds = np.random.choice(len(trajectories), size=batch_size, p=p_sample)
-
-    s_list, a_list, rtg_list, t_list, mask_list = [], [], [], [], []
-    for idx in batch_inds:
-        traj = trajectories[idx]
-        traj_len = traj["states"].shape[0]
-        si = np.random.randint(0, traj_len - 1)
-        end = min(si + K, traj_len)
-
-        s = traj["states"][si:end]
-        a = traj["actions"][si:end]
-        rtg = traj["returns_to_go"][si:end].reshape(-1, 1) / RETURN_SCALE
-        ts = np.clip(np.arange(si, end), 0, max_ep_len - 1)
-
-        tlen = s.shape[0]
-        pad = K - tlen
-
-        s = (s - state_mean) / state_std
-        s = np.concatenate([np.zeros((pad, state_dim), dtype=np.float32), s], axis=0)
-        a = np.concatenate([np.zeros((pad, act_dim), dtype=np.float32), a], axis=0)
-        rtg = np.concatenate([np.zeros((pad, 1), dtype=np.float32), rtg], axis=0)
-        ts = np.concatenate([np.zeros((pad,), dtype=np.int64), ts], axis=0)
-        mask = np.concatenate([np.zeros((pad,), dtype=np.float32), np.ones((tlen,), dtype=np.float32)], axis=0)
-
-        s_list.append(s); a_list.append(a); rtg_list.append(rtg); t_list.append(ts); mask_list.append(mask)
-
-    return (
-        torch.tensor(np.stack(s_list), dtype=torch.float32, device=device),
-        torch.tensor(np.stack(a_list), dtype=torch.float32, device=device),
-        torch.tensor(np.stack(rtg_list), dtype=torch.float32, device=device),
-        torch.tensor(np.stack(t_list), dtype=torch.long, device=device),
-        torch.tensor(np.stack(mask_list), dtype=torch.float32, device=device),
+def model_from_ckpt(ckpt):
+    cfg = ckpt["config"]
+    model = DecisionTransformer(
+        state_dim=cfg["state_dim"], act_dim=cfg["act_dim"],
+        hidden_size=cfg["hidden_size"], n_layer=cfg["n_layer"],
+        n_head=cfg["n_head"], max_ep_len=cfg["max_ep_len"],
+        action_head=cfg.get("action_head", "continuous"),
+        n_dir_bins=cfg.get("n_dir_bins", 36),
     )
-
-
-def teacher_forced_predictions(model, traj, state_mean, state_std, max_ep_len, device):
-    states = traj["states"]
-    actions = traj["actions"]
-    rtg = traj["returns_to_go"].reshape(-1, 1) / RETURN_SCALE
-
-    T = states.shape[0]
-    states_norm = (states - state_mean) / state_std
-
-    states_t = torch.tensor(states_norm, dtype=torch.float32, device=device).unsqueeze(0)
-    actions_t = torch.tensor(actions, dtype=torch.float32, device=device).unsqueeze(0)
-    rtg_t = torch.tensor(rtg, dtype=torch.float32, device=device).unsqueeze(0)
-    timesteps_t = torch.arange(T, device=device).clamp(max=max_ep_len - 1).unsqueeze(0)
-    mask_t = torch.ones((1, T), dtype=torch.float32, device=device)
-
-    with torch.no_grad():
-        preds = model(states_t, actions_t, rtg_t, timesteps_t, mask_t)
-    return preds[0].cpu().numpy()
+    model.load_state_dict({k: v.cpu() for k, v in ckpt["model_state_dict"].items()})
+    model.eval()
+    return model
 
 
 def run_single_seed(trajectories, seed):
-    rng = np.random.RandomState(seed)
-    shuffled_idx = rng.permutation(len(trajectories))
+    ckpt, best_val = train_dt.train_once(
+        split_seed=seed, num_iters=NUM_TRAIN_ITERS, verbose=False, save_path=None)
 
-    n_val = min(NUM_HELDOUT_EPISODES, max(0, len(trajectories) - 1))
-    val_idx = shuffled_idx[:n_val]
-    train_idx = shuffled_idx[n_val:]
+    model = model_from_ckpt(ckpt)
+    cfg = ckpt["config"]
+    K = cfg["context_length"]
+    val = [t for t in trajectories if t.get("group", t["source_file"]) in ckpt["held_out_files"]]
 
-    train_trajectories = [trajectories[i] for i in train_idx]
-    val_trajectories = [trajectories[i] for i in val_idx]
+    A_tf, A_ar, Y, V = [], [], [], []
+    for traj in val:
+        s_norm, rtg = prep(traj, ckpt)
+        acts = traj["actions"]
+        S, A, R, TS, M = build_windows(s_norm, acts, rtg, K, cfg["max_ep_len"])
+        # teacher forcing musi respektowac to, czym model byl karmiony w treningu
+        A_in = np.zeros_like(A) if cfg.get("zero_actions") else A
+        A_tf.append(predict_batched(model, S, A_in, R, TS, M))
+        A_ar.append(predict_autoregressive(model, s_norm, rtg, ckpt, acts.shape[1]))
+        Y.append(acts)
+        V.append(traj["valid"] if "valid" in traj else np.ones(len(acts), bool))
 
-    state_dim = trajectories[0]["states"].shape[1]
-    act_dim = trajectories[0]["actions"].shape[1]
-    max_ep_len = max(t["states"].shape[0] for t in trajectories) + 10
+    valid = np.concatenate(V)
+    y = np.concatenate(Y)[valid]
+    tf = np.concatenate(A_tf)[valid]
+    ar = np.concatenate(A_ar)[valid]
 
-    state_mean, state_std = compute_state_normalization(train_trajectories)
-
-    model = DecisionTransformer(
-        state_dim=state_dim, act_dim=act_dim, hidden_size=HIDDEN_SIZE,
-        n_layer=N_LAYER, n_head=N_HEAD, max_ep_len=max_ep_len, dropout=DROPOUT,
-    ).to(DEVICE)
-
-    optimizer = torch.optim.AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY)
-
-    for iteration in range(1, NUM_TRAIN_ITERS + 1):
-        model.train()
-        states, actions, rtg, timesteps, mask = get_batch(
-            train_trajectories, BATCH_SIZE, CONTEXT_LENGTH, state_dim, act_dim,
-            state_mean, state_std, max_ep_len, DEVICE,
-        )
-        action_preds = model(states, actions, rtg, timesteps, mask)
-        loss_mask = mask.unsqueeze(-1)
-        loss = (((action_preds - actions) * loss_mask) ** 2).sum() / loss_mask.sum()
-
-        optimizer.zero_grad()
-        loss.backward()
-        nn.utils.clip_grad_norm_(model.parameters(), GRAD_NORM_CLIP)
-        optimizer.step()
-
-    model.eval()
-    real_all, pred_all = [], []
-    for traj in val_trajectories:
-        preds = teacher_forced_predictions(model, traj, state_mean, state_std, max_ep_len, DEVICE)
-        real_all.append(traj["actions"])
-        pred_all.append(preds)
-
-    real_all = np.concatenate(real_all, axis=0)
-    pred_all = np.concatenate(pred_all, axis=0)
-
-    magnitude = np.linalg.norm(real_all, axis=1)
-    median_mag = np.median(magnitude)
-    large_mask = magnitude > median_mag
-
-    per_sample_sq_err = np.sum((pred_all - real_all) ** 2, axis=1)
-    mse_large = per_sample_sq_err[large_mask].mean()
-    baseline_large = np.sum(real_all[large_mask] ** 2, axis=1).mean()
-
-    pct_improvement = 100 * (1 - mse_large / baseline_large) if baseline_large > 1e-9 else float("nan")
-
+    ang_tf = angular_error_deg(tf, y)
+    ang_ar = angular_error_deg(ar, y)
     return {
         "seed": seed,
-        "val_files": [t["source_file"] for t in val_trajectories],
-        "mse_large": mse_large,
-        "baseline_large": baseline_large,
-        "pct_improvement": pct_improvement,
+        "best_val": best_val,
+        "tf_median": float(np.median(ang_tf)),
+        "ar_median": float(np.median(ang_ar)),
+        "ar_under45": 100 * float((ang_ar < 45).mean()),
+        "ar_len_ratio": float(np.linalg.norm(ar, axis=1).mean()
+                              / max(np.linalg.norm(y, axis=1).mean(), 1e-9)),
     }
 
 
 def main():
-    print(f"Urzadzenie: {DEVICE}")
-    trajectories = load_dataset(DATASET_FILE)
-    print(f"Wczytano {len(trajectories)} trajektorii z {DATASET_FILE}")
-    print(f"Testuje {len(SEEDS_TO_TEST)} roznych podzialow train/val, po {NUM_TRAIN_ITERS} iteracji kazdy...\n")
+    trajectories, action_scale = train_dt.load_dataset(train_dt.DATASET_FILE)
+    if train_dt.USE_YAW_SINCOS:
+        train_dt.apply_yaw_sincos(trajectories)
+
+    print(f"Urzadzenie: {train_dt.DEVICE}   trajektorii: {len(trajectories)}   "
+          f"action_scale={action_scale:.4f} m")
+    print(f"ZERO_ACTIONS_IN_CONTEXT = {train_dt.ZERO_ACTIONS_IN_CONTEXT}   "
+          f"ACTION_HEAD = {train_dt.ACTION_HEAD}"
+          + (f" ({train_dt.N_DIR_BINS} binow)" if train_dt.ACTION_HEAD == "discrete" else ""))
+    print(f"{len(SEEDS_TO_TEST)} podzialow x {NUM_TRAIN_ITERS} iteracji\n")
 
     results = []
     for seed in SEEDS_TO_TEST:
-        print(f"--- Seed {seed} ---")
         r = run_single_seed(trajectories, seed)
         results.append(r)
-        print(f"  Walidacja: {r['val_files']}")
-        print(f"  DUZE akcje: MSE modelu={r['mse_large']:.6f}  baseline={r['baseline_large']:.6f}  "
-              f"poprawa={r['pct_improvement']:+.1f}%\n")
+        print(f"seed={seed}  AUTOREGRESYWNIE mediana={r['ar_median']:5.1f} st  "
+              f"<45st={r['ar_under45']:4.0f}%  dl/prawda={r['ar_len_ratio']:.2f}   "
+              f"(teacher forcing: {r['tf_median']:5.1f} st)")
 
-    pct_values = [r["pct_improvement"] for r in results if not np.isnan(r["pct_improvement"])]
+    ar = np.array([r["ar_median"] for r in results])
+    tf = np.array([r["tf_median"] for r in results])
+    ratio = np.array([r["ar_len_ratio"] for r in results])
+    gap = ar - tf
 
-    print("=" * 60)
-    print("PODSUMOWANIE (poprawa modelu vs baseline na DUZYCH akcjach):")
-    for r in results:
-        print(f"  seed={r['seed']:2d}: {r['pct_improvement']:+7.1f}%   (val: {r['val_files']})")
+    print("\n" + "=" * 70)
+    print(f"Blad autoregresywny (mediana): {ar.mean():5.1f} st  +/- {ar.std():.1f}")
+    print(f"Teacher forcing:               {tf.mean():5.1f} st  +/- {tf.std():.1f}")
+    print(f"Luka TF -> autoregresja:       {gap.mean():+5.1f} st")
+    print(f"Losowy kierunek:                90.0 st")
+    print(f"Dlugosc predykcji / prawdy:     {ratio.mean():.2f}")
 
-    print(f"\nSrednia poprawa: {np.mean(pct_values):+.1f}%")
-    print(f"Odchylenie std:  {np.std(pct_values):.1f} punktow procentowych")
-    print(f"Zakres: {min(pct_values):+.1f}% do {max(pct_values):+.1f}%")
-
-    if np.std(pct_values) > 15:
-        print(
-            "\n-> Wysoka wariancja miedzy seedami sugeruje, ze wynik jest bardzo "
-            "niestabilny/przypadkowy przy tej ilosci danych - potrzeba wiecej epizodow, "
-            "zeby miec wiarygodna ocene jakosci modelu."
-        )
-    elif np.mean(pct_values) > 10:
-        print("\n-> Model konsekwentnie bije baseline na duzych akcjach - dobry, stabilny sygnal.")
+    print("\nOdczyt:")
+    if ar.mean() > 70:
+        print("  Blad bliski losowemu - model nie przewiduje kierunku ze stanu.")
+    elif ar.mean() < 45 and gap.mean() < 10:
+        print("  Model przewiduje kierunek ze stanu i nie rozjezdza sie w autoregresji.")
+        print("  Mozna przechodzic do eksportu ONNX i testu zamknietej petli w Unity.")
+    elif gap.mean() > 20:
+        print("  Duza luka miedzy teacher forcing a autoregresja: model nadal")
+        print("  wykorzystuje historie akcji jako skrot. Sprawdz, czy")
+        print("  ZERO_ACTIONS_IN_CONTEXT jest wlaczone, i rozwaz decymacje danych")
+        print("  do czestotliwosci decyzji z DTInference.")
     else:
-        print(
-            "\n-> Model srednio ledwo bije (lub nie bije) baseline na duzych akcjach, "
-            "niezaleznie od podzialu - to sugeruje ze problem NIE jest przypadkiem "
-            "(zlym seedem), tylko systematycznym brakiem wystarczajacej ilosci/jakosci "
-            "danych dla tego typu (duzych, rzadkich) akcji."
-        )
+        print("  Posrednio - model cos umie ze stanu, ale daleko mu do etykiet.")
+        print("  Kolejny krok: decymacja do czestotliwosci decyzji, potem dane.")
+
+    if ratio.mean() < 0.6:
+        print(f"\n  Predykcje {ratio.mean():.2f}x krotsze od prawdziwych akcji -")
+        print("  podpis regresji L2 na rozkladzie wielomodalnym. Wiecej danych tego")
+        print("  nie naprawi; potrzebna glowica rozkladowa (dyskretyzacja kierunku")
+        print("  + cross-entropy) zamiast MSE.")
 
 
 if __name__ == "__main__":
