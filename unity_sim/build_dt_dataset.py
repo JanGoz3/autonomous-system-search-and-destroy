@@ -8,6 +8,7 @@ import pandas as pd
 DATA_DIR = r"C:\Users\Admin\AppData\LocalLow\DefaultCompany\Search and destroy\DTDataset"
 OUTPUT_FILE = "dt_dataset.pkl"
 
+USE_EXPERT_LABEL = True
 
 USE_DISTANCE_RELABEL = True
 WAYPOINT_DIST = 1.5          # metry - jak daleko ma byc waypoint
@@ -29,17 +30,16 @@ COLLISION_PENALTY = -2.0
 
 MIN_EPISODE_LENGTH = MAX_LOOKAHEAD_STEPS + 10
 
-# Wykrywanie "przyparcia do sciany": brak ruchu w oknie STILL_WINDOW krokow
 STILL_WINDOW = 5
 STILL_DIST_M = 0.02          # metry - ponizej tego w oknie = auto stoi
-MIN_VALID_FRACTION = 0.25    # epizod z mniejszym udzialem waznych probek odrzucamy
+
+KEEP_EVERY_STILL = 10        # z odcinka bezruchu zostaw co N-ta probke
+MIN_VALID_FRACTION = 0.10
 
 NUM_TELEMETRY_COLS = 17
 
 
 def world_to_local(d: np.ndarray, yaw_deg: np.ndarray) -> np.ndarray:
-    """(N,2) przemieszczenie w swiecie -> (N,2) w ukladzie auta.
-    Unity: forward = (sin yaw, cos yaw), right = (cos yaw, -sin yaw)."""
     th = np.radians(yaw_deg)
     c, s = np.cos(th), np.sin(th)
     return np.stack([d[:, 0] * c - d[:, 1] * s,
@@ -47,18 +47,12 @@ def world_to_local(d: np.ndarray, yaw_deg: np.ndarray) -> np.ndarray:
 
 
 def local_to_world(d: np.ndarray, yaw_deg: np.ndarray) -> np.ndarray:
-    """Odwrotnosc world_to_local. Odpowiednik transform.TransformDirection."""
     th = np.radians(yaw_deg)
     c, s = np.cos(th), np.sin(th)
     return np.stack([d[:, 0] * c + d[:, 1] * s,
                      -d[:, 0] * s + d[:, 1] * c], axis=1)
 
-
-
-
 def relabel_by_distance(pos, yaw, target=WAYPOINT_DIST, max_steps=MAX_LOOKAHEAD_STEPS):
-    """Waypoint = pierwsza przyszla pozycja oddalona o >= target metrow.
-    Zwraca (akcje_w_metrach, maska_czy_osiagnieto_dystans)."""
     n = len(pos)
     j_idx = np.empty(n, dtype=np.int64)
     reached = np.zeros(n, dtype=bool)
@@ -87,11 +81,25 @@ def relabel_by_steps(pos, yaw, horizon=HORIZON_STEPS):
 
 
 def moving_mask(pos, window=STILL_WINDOW, thr=STILL_DIST_M):
-    """True = auto faktycznie sie przemiescilo w oknie 'window' krokow."""
     n = len(pos)
     fut = np.minimum(np.arange(n) + window, n - 1)
     return np.hypot(*(pos[fut] - pos).T) >= thr
 
+
+def thin_still_runs(moving, keep_every=KEEP_EVERY_STILL):
+    valid = moving.copy()
+    n = len(moving)
+    i = 0
+    while i < n:
+        if moving[i]:
+            i += 1
+            continue
+        j = i
+        while j < n and not moving[j]:
+            j += 1
+        valid[i:j:keep_every] = True     # co keep_every-ta z odcinka [i, j)
+        i = j
+    return valid
 
 def compute_rewards(df, grid_cell_size=GRID_CELL_SIZE):
     n = len(df)
@@ -135,13 +143,22 @@ def process_episode(csv_path: Path):
     pos = df[["posX", "posZ"]].to_numpy(dtype=np.float64)
     yaw = df["yaw"].to_numpy(dtype=np.float64)
 
-    if USE_DISTANCE_RELABEL:
+    has_expert = USE_EXPERT_LABEL and {"expert_x", "expert_z"} <= set(df.columns)
+    if has_expert:
+        actions_m = df[["expert_x", "expert_z"]].to_numpy(dtype=np.float64)
+        reached = (df["expert_valid"].to_numpy().astype(bool)
+                   if "expert_valid" in df.columns
+                   else np.ones(len(df), dtype=bool))
+
+        reached &= np.hypot(actions_m[:, 0], actions_m[:, 1]) > 0.05
+    elif USE_DISTANCE_RELABEL:
         actions_m, reached = relabel_by_distance(pos, yaw)
     else:
         actions_m, reached = relabel_by_steps(pos, yaw)
 
     moving = moving_mask(pos)
-    valid = moving & reached
+
+    valid = (thin_still_runs(moving) if has_expert else moving) & reached
     valid_frac = valid.mean()
 
     if valid_frac < MIN_VALID_FRACTION:
@@ -162,6 +179,7 @@ def process_episode(csv_path: Path):
         "source_file": csv_path.name,
         "group": csv_path.name,
         "n_collisions": int(df["collision"].sum()) if "collision" in df.columns else 0,
+        "expert_label": bool(has_expert),
     }
 
 
@@ -219,7 +237,10 @@ def main():
               f"({len(set(t['group'] for t in trajectories))} grup)")
 
     all_valid = np.concatenate([t["actions_m"][t["valid"]] for t in trajectories])
-    action_scale = float(all_valid.std())
+
+    use_expert = all(t.get("expert_label") for t in trajectories)
+    action_scale = float(np.hypot(all_valid[:, 0], all_valid[:, 1]).mean()
+                         if use_expert else all_valid.std())
     if action_scale < 1e-6:
         raise RuntimeError("std akcji ~0 - cos jest powaznie nie tak z danymi.")
 
@@ -231,6 +252,7 @@ def main():
     mag = np.hypot(all_valid[:, 0], all_valid[:, 1])
 
     print(f"\n--- Podsumowanie ---")
+    print(f"Zrodlo etykiet: {'waypoint eksperta (expert_x/expert_z)' if use_expert else 'relabeling z ruchu auta'}")
     print(f"Epizodow: {len(trajectories)}, krokow: {total}")
     print(f"Waznych probek: {n_valid} ({100 * n_valid / total:.0f}%)")
     print(f"ACTION_SCALE (std, metry): {action_scale:.4f}")
@@ -238,6 +260,15 @@ def main():
           f"p90={np.quantile(mag, 0.9):.2f}, max={mag.max():.2f}")
     print(f"Udzial akcji 'do tylu' (local_z < 0): "
           f"{100 * (all_valid[:, 1] < 0).mean():.0f}%")
+
+    rtg = np.concatenate([t["returns_to_go"] for t in trajectories])
+    print(f"\nReturn-to-go obserwowany w danych (do wpisania w DTInference):")
+    print(f"  returnToGoMin = {np.percentile(rtg, 1):.0f}   "
+          f"returnToGoMax = {np.percentile(rtg, 99):.0f}")
+    print(f"  mediana={np.median(rtg):.1f}, zakres pelny "
+          f"[{rtg.min():.0f}, {rtg.max():.0f}]")
+    print(f"  initialTargetReturn ustaw blisko gornego konca, np. "
+          f"{np.percentile(rtg, 90):.0f} - wyzej to ekstrapolacja poza dane.")
 
     with open(OUTPUT_FILE, "wb") as f:
         pickle.dump({"trajectories": trajectories,

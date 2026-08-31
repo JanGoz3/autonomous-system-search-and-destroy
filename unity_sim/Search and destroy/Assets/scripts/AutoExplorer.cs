@@ -1,333 +1,247 @@
-using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.AI;
 
 /// <summary>
-/// Eksploracja: wybor celu metoda FRONTIER + prowadzenie metoda PRZYNETY.
+/// Pure pursuit po recznie wyznaczonej trasie CoverageRoute.
 ///
-/// Dwie niezalezne warstwy:
+/// Zastepuje wersje z losowymi punktami B i wersje frontierowa. Roznica jest
+/// zasadnicza: trasa jest DETERMINISTYCZNA, wiec etykieta dla DT staje sie
+/// funkcja wylacznie tego, co model ma w stanie - pozycji i yaw. Przy losowym
+/// punkcie B ten sam stan mial rozne poprawne odpowiedzi zaleznie od tego, co
+/// akurat wylosowalo, i to bylo zrodlem rozrzutu 50 st u najblizszych sasiadow.
 ///
-/// 1. DOKAD (frontier). Z NavMesh.CalculateTriangulation() budujemy raz na
-///    starcie zbior wszystkich chodliwych komorek 1x1 m - tej samej siatki,
-///    ktora liczy nagrode w build_dt_dataset.py. Celem jest zawsze najblizsza
-///    NIEODWIEDZONA komorka osiagalna po NavMeshu.
+/// ExpertLocalWaypoint to sygnal planera i to jest przyszla ETYKIETA dla DT -
+/// zamiast relabelowac z przyszlej pozycji auta (czyli z tego, co udalo sie
+/// zrobic driverowi), logujemy to, co ekspert kazal zrobic.
 ///
-///    Poprzednia wersja losowala punkt B, wiec nie optymalizowala pokrycia w
-///    ogole - DT uczyl sie imitowac eksperta, ktory nie byl dobry w zadaniu,
-///    za ktore DT dostaje nagrode. Teraz etykiety zawieraja strategie.
-///
-/// 2. JAK (przyneta). Target trzymany w stalej, malej odleglosci PRZED autem
-///    wzdluz wyznaczonej trasy. Pozycja targetu jest funkcja pozycji auta,
-///    a nie czasu, wiec nie ma czego dostrajac do predkosci drivera.
-///
-/// CurrentTargetPosition to sygnal planera - logujac go mozna relabelowac
-/// akcje DT z planu zamiast z faktycznej trasy auta.
+/// Zachowany interfejs StartExploring/StopExploring, wiec DTDataLogger
+/// i CoverageBenchmark dzialaja bez zmian.
 /// </summary>
 public class AutoExplorer : MonoBehaviour
 {
     [Header("References")]
+    public CoverageRoute route;
     public Transform carTransform;
+    public Rigidbody carRigidbody;
     public Transform target;
+    [Tooltip("Opcjonalne. Jesli podpiete, zaklinowanie KONCZY epizod (logger zapisuje fragment albo odrzuca go, gdy za krotki) i dopiero potem auto jest przenoszone. Bez tego respawn tworzylby w danych falszywa 'teleportacje' w srodku trajektorii.")]
+    public DTDataLogger dataLogger;
 
-    [Header("Przyneta")]
+    [Header("Pure pursuit")]
     [Tooltip("Jak daleko przed autem trzymac target, mierzone wzdluz trasy. Ustaw rowno z WAYPOINT_DIST w build_dt_dataset.py.")]
     public float lookAheadDistance = 1.5f;
-
-    [Header("Frontier")]
-    [Tooltip("MUSI rownac sie GRID_CELL_SIZE w build_dt_dataset.py i gridCellSize w DTInference.")]
-    public float gridCellSize = 1.0f;
-    [Tooltip("Nie wybieraj celow blizszych niz tyle - inaczej auto dreptaloby w miejscu, przeskakujac miedzy sasiednimi komorkami.")]
-    public float minTargetDistance = 4f;
-    [Tooltip("Ilu najblizszych kandydatow sprawdzic przez CalculatePath, zanim sie poddamy.")]
-    public int candidatesToTry = 12;
-    [Tooltip("Po pokryciu calej mapy wyczysc historie i zacznij od nowa (tryb patrolu). Wylaczone = przejscie na cele losowe.")]
-    public bool restartWhenComplete = true;
-
-    [Header("Trasa")]
-    [Tooltip("Gdy do konca trasy zostanie mniej niz tyle metrow, wybieramy nastepny frontier - bez zatrzymywania auta.")]
-    public float replanWhenRemaining = 2f;
-    [Tooltip("Jesli auto oddali sie od trasy bardziej niz tyle, planujemy od nowa z jego faktycznej pozycji.")]
+    [Tooltip("Jak daleko do przodu szukac rzutu auta na trase przy kazdej klatce.")]
+    public float searchForward = 6f;
+    [Tooltip("Ile wstecz. Male, zeby auto nie zrzutowalo sie na wczesniejszy fragment trasy w rownoleglym korytarzu.")]
+    public float searchBackward = 1f;
+    public float searchStep = 0.2f;
+    [Tooltip("O ile metrow ponad faktycznie przejechany dystans postep moze wzrosnac w jednej klatce. Bez tego ograniczenia rzut przeskakuje na rownolegly fragment trasy (np. tor powrotny odnogi) i cala jej dlugosc jest uznawana za przejechana bez jezdzenia.")]
+    public float progressSlack = 0.3f;
+    [Tooltip("Powyzej tego odchylenia od trasy szukamy rzutu po CALEJ trasie, nie tylko w oknie.")]
     public float maxDeviation = 4f;
 
-    [Header("Przeplanowanie przy utknieciu")]
-    public bool replanWhenStuck = true;
-    public float stuckCheckWindow = 5f;
-    public float stuckDistanceThreshold = 0.4f;
+    [Header("Spawn")]
+    [Tooltip("Start w losowym punkcie trasy - daje zroznicowane pozycje poczatkowe, ktorych ciagle nagrywanie nie dawalo.")]
+    public bool respawnOnStart = true;
+    [Tooltip("Losowe odchylenie od kierunku trasy przy spawnie, w stopniach (+/-). 180 = pelna losowosc. Przy pelnej losowosci co drugi respawn zaczyna sie od zawracania, ktore detektor bierze za zaklinowanie - stad domyslne 90.")]
+    public float spawnYawJitter = 90f;
+    public float spawnHeightOffset = 0.2f;
+
+    [Header("Utkniecie")]
+    public bool detectStuck = true;
+    [Tooltip("Przez ile sekund auto musi nie ruszyc sie o stuckDistanceThreshold, zeby uznac je za zaklinowane. Za male wartosci lapia normalne manewry zawracania.")]
+    public float stuckCheckWindow = 6f;
+    public float stuckDistanceThreshold = 0.5f;
+    [Tooltip("Karencja po respawnie - przez tyle sekund nie sprawdzamy zaklinowania. Auto ustawione bokiem do trasy potrzebuje czasu na manewr, a bez karencji zostaloby natychmiast uznane za zaklinowane i przeniesione ponownie.")]
+    public float spawnGracePeriod = 5f;
+    [Tooltip("Po wykryciu zaklinowania: zakoncz epizod w loggerze (jesli podpiety) i przenies auto w losowy punkt trasy. Bezpieczne TYLKO z podpietym dataLogger - inaczej powstaje teleportacja w srodku trajektorii.")]
+    public bool respawnWhenStuck = true;
 
     [Header("Runtime (read-only)")]
     public bool isExploring = false;
-    public int walkableCellCount = 0;
-    public int visitedCellCount = 0;
-    public float coveragePercent = 0f;
-    public float progressAlongPath = 0f;
-    public float pathTotalLength = 0f;
-    public float deviationFromPath = 0f;
-    public int pathsPlanned = 0;
-    public int stuckReplans = 0;
-    public int mapRestarts = 0;
-
-    private readonly Dictionary<Vector2Int, Vector3> walkable = new Dictionary<Vector2Int, Vector3>();
-    private readonly HashSet<Vector2Int> visited = new HashSet<Vector2Int>();
-    private readonly HashSet<Vector2Int> unreachable = new HashSet<Vector2Int>();
-
-    private readonly List<Vector3> corners = new List<Vector3>();
-    private readonly List<float> cumulative = new List<float>();
-    private NavMeshPath navPath;                 // NIE w inicjalizatorze pola
-    private int currentSegment = 0;
+    public float progressAlongRoute = 0f;
+    public float deviationFromRoute = 0f;
+    public int lapsCompleted = 0;
+    public int stuckEvents = 0;
+    [Tooltip("Postep na trasie przy kolejnych zaklinowaniach. Skupienie wartosci = konkretne zle miejsce na trasie. Rozrzut = problem z driverem.")]
+    public string stuckHotspots = "";
+    [Tooltip("ETYKIETA dla DT: wektor do pursuit pointa w ukladzie auta. x = w prawo, z = do przodu, w metrach.")]
+    public Vector2 expertLocalWaypoint;
 
     private float stuckTimer = 0f;
+    private float graceTimer = 0f;
     private Vector3 stuckAnchor;
+    private float routeLength = 0f;
+    private Vector3 lastProjectionPos;
+    private readonly System.Collections.Generic.List<float> stuckAt =
+        new System.Collections.Generic.List<float>();
 
-    public Vector3 CurrentTargetPosition => target != null ? target.position : Vector3.zero;
-    public bool HasPath => corners.Count >= 2;
+    public Vector3 ExpertWorldWaypoint => target != null ? target.position : Vector3.zero;
+    public bool StuckThisFrame { get; private set; }
 
     // =======================================================================
 
-    void Awake()
-    {
-        if (navPath == null) navPath = new NavMeshPath();
-    }
-
     public void StartExploring()
     {
-        if (carTransform == null || target == null)
+        if (route == null || carTransform == null || target == null)
         {
-            Debug.LogError("[AutoExplorer] Brak referencji carTransform/target.");
-            return;
-        }
-        if (navPath == null) navPath = new NavMeshPath();
-
-        BuildWalkableCells();
-        if (walkable.Count == 0)
-        {
-            Debug.LogError("[AutoExplorer] NavMesh nie zwrocil zadnych trojkatow. "
-                         + "Czy scena ma zbakowany NavMesh?");
+            Debug.LogError("[AutoExplorer] Brak referencji route/carTransform/target.");
             return;
         }
 
-        visited.Clear();
-        unreachable.Clear();
-        pathsPlanned = 0;
-        stuckReplans = 0;
-        mapRestarts = 0;
+        routeLength = route.TotalLength();
+        if (routeLength < 1f)
+        {
+            Debug.LogError("[AutoExplorer] Trasa pusta lub za krotka.");
+            return;
+        }
+
+        if (respawnOnStart) RespawnOnRoute();
+        else progressAlongRoute = ProjectGlobally();
+
         stuckTimer = 0f;
+        graceTimer = spawnGracePeriod;
         stuckAnchor = carTransform.position;
+        lastProjectionPos = carTransform.position;
+        stuckEvents = 0;
+        stuckAt.Clear();
+        stuckHotspots = "";
+        lapsCompleted = 0;
+        isExploring = true;
 
-        MarkVisited();
-        isExploring = PlanToFrontier();
-        if (!isExploring)
-            Debug.LogError("[AutoExplorer] Nie udalo sie wyznaczyc pierwszej trasy.");
+        UpdateTarget();
+        Debug.Log($"[AutoExplorer] Start. Trasa {routeLength:F1} m, "
+                + $"postep {progressAlongRoute:F1} m");
     }
 
-    public void StopExploring()
+    public void StopExploring() => isExploring = false;
+
+    /// <summary>Przenosi auto na losowy punkt trasy. Daje zroznicowane pozycje
+    /// startowe - przy ciaglym nagrywaniu wszystkie epizody zaczynaly sie tam,
+    /// gdzie skonczyl sie poprzedni.</summary>
+    public void RespawnOnRoute()
     {
-        isExploring = false;
-        corners.Clear();
-        cumulative.Clear();
+        float d = Random.Range(0f, routeLength);
+        Vector3 pos = route.PointAtDistance(d);
+
+        // kierunek trasy w tym punkcie - jako baza dla orientacji
+        Vector3 ahead = route.PointAtDistance(d + 1f);
+        Quaternion rot = Quaternion.LookRotation(
+            Flat(ahead - pos).sqrMagnitude > 1e-4f ? Flat(ahead - pos) : Vector3.forward,
+            Vector3.up);
+        if (spawnYawJitter > 0f)
+            rot *= Quaternion.Euler(0f, Random.Range(-spawnYawJitter, spawnYawJitter), 0f);
+
+        if (NavMesh.SamplePosition(pos, out NavMeshHit hit, 2f, NavMesh.AllAreas))
+            pos = hit.position;
+
+        carTransform.SetPositionAndRotation(pos + Vector3.up * spawnHeightOffset, rot);
+        if (carRigidbody != null)
+        {
+            carRigidbody.linearVelocity = Vector3.zero;
+            carRigidbody.angularVelocity = Vector3.zero;
+        }
+
+        progressAlongRoute = d;
+        stuckAnchor = carTransform.position;
+        lastProjectionPos = carTransform.position;   // respawn omija limit przyrostu
+        stuckTimer = 0f;
+        graceTimer = spawnGracePeriod;
     }
 
     void Update()
     {
-        if (!isExploring || !HasPath) return;
+        if (!isExploring) return;
 
-        MarkVisited();
         UpdateProgress();
         CheckStuck();
-
-        if (deviationFromPath > maxDeviation ||
-            pathTotalLength - progressAlongPath < replanWhenRemaining)
-        {
-            PlanToFrontier();
-            if (!HasPath) return;
-            UpdateProgress();
-        }
-
-        float d = Mathf.Min(progressAlongPath + lookAheadDistance, pathTotalLength);
-        target.position = PointAtDistance(d);
+        UpdateTarget();
     }
 
-    // ================= FRONTIER ============================================
+    // =======================================================================
 
-    /// <summary>Rasteryzuje cala siatke NavMesh na komorki gridCellSize.
-    /// Robione RAZ na starcie - triangulacja nie zmienia sie w trakcie.</summary>
-    private void BuildWalkableCells()
-    {
-        walkable.Clear();
-        NavMeshTriangulation tri = NavMesh.CalculateTriangulation();
-
-        for (int t = 0; t < tri.indices.Length; t += 3)
-        {
-            Vector3 a = tri.vertices[tri.indices[t]];
-            Vector3 b = tri.vertices[tri.indices[t + 1]];
-            Vector3 c = tri.vertices[tri.indices[t + 2]];
-
-            // wierzcholki - lapie waskie korytarze, ktorych srodek komorki mija
-            AddCell(a); AddCell(b); AddCell(c);
-
-            int minX = Mathf.FloorToInt(Mathf.Min(a.x, b.x, c.x) / gridCellSize);
-            int maxX = Mathf.FloorToInt(Mathf.Max(a.x, b.x, c.x) / gridCellSize);
-            int minZ = Mathf.FloorToInt(Mathf.Min(a.z, b.z, c.z) / gridCellSize);
-            int maxZ = Mathf.FloorToInt(Mathf.Max(a.z, b.z, c.z) / gridCellSize);
-
-            for (int cx = minX; cx <= maxX; cx++)
-                for (int cz = minZ; cz <= maxZ; cz++)
-                {
-                    var cell = new Vector2Int(cx, cz);
-                    if (walkable.ContainsKey(cell)) continue;
-                    Vector2 center = new Vector2((cx + 0.5f) * gridCellSize,
-                                                 (cz + 0.5f) * gridCellSize);
-                    if (PointInTriangle(center, a, b, c))
-                        walkable[cell] = new Vector3(center.x, (a.y + b.y + c.y) / 3f, center.y);
-                }
-        }
-
-        walkableCellCount = walkable.Count;
-        Debug.Log($"[AutoExplorer] Siatka: {walkableCellCount} chodliwych komorek "
-                + $"{gridCellSize}x{gridCellSize} m");
-    }
-
-    private void AddCell(Vector3 p)
-    {
-        var cell = CellOf(p);
-        if (!walkable.ContainsKey(cell)) walkable[cell] = p;
-    }
-
-    private void MarkVisited()
-    {
-        if (visited.Add(CellOf(carTransform.position)))
-        {
-            visitedCellCount = visited.Count;
-            coveragePercent = walkableCellCount > 0
-                ? 100f * visitedCellCount / walkableCellCount : 0f;
-        }
-    }
-
-    /// <summary>Najblizsza nieodwiedzona komorka osiagalna po NavMeshu.</summary>
-    private bool PlanToFrontier()
-    {
-        Vector3 car = carTransform.position;
-        if (!NavMesh.SamplePosition(car, out NavMeshHit originHit, 2f, NavMesh.AllAreas))
-            return false;
-
-        float minSqr = minTargetDistance * minTargetDistance;
-        var candidates = new List<KeyValuePair<float, Vector2Int>>();
-
-        foreach (var kv in walkable)
-        {
-            if (visited.Contains(kv.Key) || unreachable.Contains(kv.Key)) continue;
-            float sqr = (Flat(kv.Value) - Flat(car)).sqrMagnitude;
-            if (sqr < minSqr) continue;
-            candidates.Add(new KeyValuePair<float, Vector2Int>(sqr, kv.Key));
-        }
-
-        if (candidates.Count == 0)
-        {
-            if (restartWhenComplete)
-            {
-                mapRestarts++;
-                Debug.Log($"[AutoExplorer] Cala mapa pokryta ({visitedCellCount} komorek). "
-                        + "Czyszcze historie i zaczynam od nowa.");
-                visited.Clear();
-                unreachable.Clear();
-                visitedCellCount = 0;
-                coveragePercent = 0f;
-                MarkVisited();
-                return PlanToFrontier();
-            }
-            Debug.LogWarning("[AutoExplorer] Brak nieodwiedzonych komorek.");
-            return false;
-        }
-
-        candidates.Sort((x, y) => x.Key.CompareTo(y.Key));
-        int tries = Mathf.Min(candidatesToTry, candidates.Count);
-
-        for (int i = 0; i < tries; i++)
-        {
-            Vector2Int cell = candidates[i].Value;
-            Vector3 goal = walkable[cell];
-
-            if (!NavMesh.SamplePosition(goal, out NavMeshHit goalHit, gridCellSize * 2f,
-                                        NavMesh.AllAreas))
-            {
-                unreachable.Add(cell);
-                continue;
-            }
-            if (!NavMesh.CalculatePath(originHit.position, goalHit.position,
-                                       NavMesh.AllAreas, navPath)
-                || navPath.status != NavMeshPathStatus.PathComplete
-                || navPath.corners.Length < 2)
-            {
-                unreachable.Add(cell);   // czarna lista, zeby nie probowac w kolko
-                continue;
-            }
-
-            StorePath();
-            return true;
-        }
-
-        // Wszyscy najblizsi kandydaci odpadli - w nastepnej klatce sprobujemy
-        // kolejnych, bo trafili na czarna liste.
-        return HasPath;
-    }
-
-    private void StorePath()
-    {
-        corners.Clear();
-        cumulative.Clear();
-        float acc = 0f;
-        for (int i = 0; i < navPath.corners.Length; i++)
-        {
-            if (i > 0)
-                acc += Vector3.Distance(Flat(navPath.corners[i - 1]), Flat(navPath.corners[i]));
-            corners.Add(navPath.corners[i]);
-            cumulative.Add(acc);
-        }
-        pathTotalLength = acc;
-        progressAlongPath = 0f;
-        currentSegment = 0;
-        deviationFromPath = 0f;
-        pathsPlanned++;
-    }
-
-    // ================= PRZYNETA ============================================
-
-    /// <summary>Rzutuje auto na trase. Postep NIGDY sie nie cofa - inaczej auto
-    /// w rownoleglym korytarzu zrzutowaloby sie na wczesniejszy fragment trasy
-    /// i przyneta cofnelaby sie za nie.</summary>
+    /// <summary>Rzut auta na trase w oknie wokol dotychczasowego postepu.
+    /// Okno wsteczne jest male celowo: bez tego auto w korytarzu biegnacym
+    /// rownolegle do wczesniejszego fragmentu trasy zrzutowaloby sie na tamten
+    /// fragment i pursuit point cofnalby sie za nie.</summary>
     private void UpdateProgress()
     {
+        float best = float.MaxValue, bestD = progressAlongRoute;
         Vector3 car = Flat(carTransform.position);
-        int last = corners.Count - 2;
-        int from = Mathf.Clamp(currentSegment, 0, last);
-        int to = Mathf.Clamp(currentSegment + 8, 0, last);
 
-        float bestDist = float.MaxValue, bestArc = progressAlongPath;
-        int bestSeg = currentSegment;
-
-        for (int i = from; i <= to; i++)
+        for (float d = progressAlongRoute - searchBackward;
+             d <= progressAlongRoute + searchForward; d += searchStep)
         {
-            Vector3 a = Flat(corners[i]), b = Flat(corners[i + 1]);
-            Vector3 p = ClosestPointOnSegment(a, b, car);
-            float dist = Vector3.Distance(car, p);
-            if (dist < bestDist)
-            {
-                bestDist = dist;
-                bestArc = cumulative[i] + Vector3.Distance(a, p);
-                bestSeg = i;
-            }
+            float sq = (Flat(route.PointAtDistance(d)) - car).sqrMagnitude;
+            if (sq < best) { best = sq; bestD = d; }
         }
 
-        deviationFromPath = bestDist;
-        if (bestArc > progressAlongPath)
+        deviationFromRoute = Mathf.Sqrt(best);
+
+        // Zgubilismy trase - szukamy po calej dlugosci. To swiadome odzyskanie,
+        // wiec omija limit przyrostu.
+        if (deviationFromRoute > maxDeviation)
         {
-            progressAlongPath = bestArc;
-            currentSegment = bestSeg;
+            bestD = ProjectGlobally();
+            deviationFromRoute = (Flat(route.PointAtDistance(bestD)) - car).magnitude;
+            lastProjectionPos = carTransform.position;
         }
+        else
+        {
+            // Postep nie moze wzrosnac bardziej, niz auto faktycznie przejechalo.
+            // Bez tego rzut przeskakuje na rownolegly fragment trasy - tak
+            // "znikala" cala odnoga przy searchForward = 6.
+            float travelled = Vector3.Distance(car, Flat(lastProjectionPos));
+            bestD = Mathf.Min(bestD, progressAlongRoute + travelled + progressSlack);
+            lastProjectionPos = carTransform.position;
+        }
+
+        if (routeLength > 1f && Mathf.FloorToInt(bestD / routeLength)
+                              > Mathf.FloorToInt(progressAlongRoute / routeLength))
+            lapsCompleted++;
+
+        progressAlongRoute = Mathf.Max(progressAlongRoute, bestD);
+    }
+
+    private float ProjectGlobally()
+    {
+        float best = float.MaxValue, bestD = 0f;
+        Vector3 car = Flat(carTransform.position);
+        for (float d = 0f; d < routeLength; d += searchStep * 2f)
+        {
+            float sq = (Flat(route.PointAtDistance(d)) - car).sqrMagnitude;
+            if (sq < best) { best = sq; bestD = d; }
+        }
+        return bestD;
+    }
+
+    private void UpdateTarget()
+    {
+        Vector3 wp = route.PointAtDistance(progressAlongRoute + lookAheadDistance);
+        target.position = wp;
+
+        // ETYKIETA: wektor do pursuit pointa w ukladzie auta
+        Vector3 local = Quaternion.Inverse(
+            Quaternion.Euler(0f, carTransform.eulerAngles.y, 0f)) * Flat(wp - carTransform.position);
+        expertLocalWaypoint = new Vector2(local.x, local.z);
     }
 
     private void CheckStuck()
     {
-        if (!replanWhenStuck) return;
+        StuckThisFrame = false;
+        if (!detectStuck) return;
+
+        // Karencja: tuz po respawnie auto czesto stoi bokiem do trasy i manewruje.
+        // Bez tego kazdy taki manewr konczylby sie kolejnym respawnem i kolejnym
+        // odrzuconym fragmentem - stad 28 odrzuconych na 13 zapisanych.
+        if (graceTimer > 0f)
+        {
+            graceTimer -= Time.deltaTime;
+            stuckTimer = 0f;
+            stuckAnchor = carTransform.position;
+            return;
+        }
+
         stuckTimer += Time.deltaTime;
         if (stuckTimer < stuckCheckWindow) return;
         stuckTimer = 0f;
@@ -335,80 +249,59 @@ public class AutoExplorer : MonoBehaviour
         if (Vector3.Distance(Flat(carTransform.position), Flat(stuckAnchor))
             < stuckDistanceThreshold)
         {
-            stuckReplans++;
-            PlanToFrontier();
+            stuckEvents++;
+            StuckThisFrame = true;
+            RecordHotspot(progressAlongRoute);
+
+            if (respawnWhenStuck)
+            {
+                // KOLEJNOSC JEST ISTOTNA: najpierw zamykamy epizod, dopiero potem
+                // przenosimy auto. Odwrotnie teleportacja trafilaby do buforu
+                // i relabeling zobaczylby skok o kilkanascie metrow.
+                if (dataLogger != null && dataLogger.isRecording)
+                    dataLogger.RestartEpisode($"zaklinowanie na {progressAlongRoute:F1} m trasy");
+                RespawnOnRoute();
+            }
         }
         stuckAnchor = carTransform.position;
     }
 
-    private Vector3 PointAtDistance(float d)
+    private void RecordHotspot(float d)
     {
-        d = Mathf.Clamp(d, 0f, pathTotalLength);
-        for (int i = 0; i < corners.Count - 1; i++)
-        {
-            if (d <= cumulative[i + 1])
-            {
-                float segLen = cumulative[i + 1] - cumulative[i];
-                float t = segLen > 1e-4f ? (d - cumulative[i]) / segLen : 0f;
-                return Vector3.Lerp(corners[i], corners[i + 1], t);
-            }
-        }
-        return corners[corners.Count - 1];
+        stuckAt.Add(d);
+        if (stuckAt.Count > 40) stuckAt.RemoveAt(0);
+
+        // histogram co 5 m trasy - pokazuje, czy zaklinowania sa skupione
+        int buckets = Mathf.Max(1, Mathf.CeilToInt(routeLength / 5f));
+        var counts = new int[buckets];
+        foreach (float x in stuckAt)
+            counts[Mathf.Clamp(Mathf.FloorToInt(Mathf.Repeat(x, routeLength) / 5f), 0, buckets - 1)]++;
+
+        var sb = new System.Text.StringBuilder();
+        for (int i = 0; i < buckets; i++)
+            if (counts[i] > 0) sb.Append($"{i * 5}-{(i + 1) * 5}m:{counts[i]}  ");
+        stuckHotspots = sb.ToString();
     }
-
-    // ================= pomocnicze ==========================================
-
-    private Vector2Int CellOf(Vector3 p) => new Vector2Int(
-        Mathf.FloorToInt(p.x / gridCellSize), Mathf.FloorToInt(p.z / gridCellSize));
 
     private static Vector3 Flat(Vector3 v) => new Vector3(v.x, 0f, v.z);
 
-    private static Vector3 ClosestPointOnSegment(Vector3 a, Vector3 b, Vector3 p)
-    {
-        Vector3 ab = b - a;
-        float len2 = ab.sqrMagnitude;
-        if (len2 < 1e-6f) return a;
-        return a + ab * Mathf.Clamp01(Vector3.Dot(p - a, ab) / len2);
-    }
-
-    private static bool PointInTriangle(Vector2 p, Vector3 a, Vector3 b, Vector3 c)
-    {
-        float Sign(Vector2 p1, Vector2 p2, Vector2 p3) =>
-            (p1.x - p3.x) * (p2.y - p3.y) - (p2.x - p3.x) * (p1.y - p3.y);
-
-        Vector2 a2 = new Vector2(a.x, a.z), b2 = new Vector2(b.x, b.z), c2 = new Vector2(c.x, c.z);
-        float d1 = Sign(p, a2, b2), d2 = Sign(p, b2, c2), d3 = Sign(p, c2, a2);
-        bool neg = (d1 < 0) || (d2 < 0) || (d3 < 0);
-        bool pos = (d1 > 0) || (d2 > 0) || (d3 > 0);
-        return !(neg && pos);
-    }
-
     void OnDrawGizmos()
     {
-        if (!isExploring) return;
+        if (!isExploring || carTransform == null || target == null) return;
 
-        // nieodwiedzone komorki - to jest "frontier"
-        Gizmos.color = new Color(0.2f, 0.6f, 1f, 0.25f);
-        foreach (var kv in walkable)
-            if (!visited.Contains(kv.Key))
-                Gizmos.DrawCube(kv.Value + Vector3.up * 0.05f,
-                                new Vector3(gridCellSize * 0.85f, 0.02f, gridCellSize * 0.85f));
+        Gizmos.color = Color.green;                       // pursuit point
+        Gizmos.DrawWireSphere(target.position + Vector3.up * 0.1f, 0.3f);
+        Gizmos.DrawLine(carTransform.position, target.position);
 
-        if (corners.Count >= 2)
+        if (route != null)
         {
-            Gizmos.color = Color.yellow;
-            for (int i = 0; i < corners.Count - 1; i++)
-                Gizmos.DrawLine(corners[i] + Vector3.up * 0.1f, corners[i + 1] + Vector3.up * 0.1f);
-
-            Gizmos.color = Color.magenta;
-            Gizmos.DrawWireSphere(PointAtDistance(progressAlongPath) + Vector3.up * 0.1f, 0.2f);
+            Gizmos.color = Color.magenta;                 // rzut auta na trase
+            Gizmos.DrawWireSphere(
+                route.PointAtDistance(progressAlongRoute) + Vector3.up * 0.1f, 0.2f);
         }
 
-        if (target != null && carTransform != null)
-        {
-            Gizmos.color = Color.green;
-            Gizmos.DrawWireSphere(target.position + Vector3.up * 0.1f, 0.3f);
-            Gizmos.DrawLine(carTransform.position, target.position);
-        }
+        Gizmos.color = Color.cyan;                        // kierunek auta
+        Gizmos.DrawRay(carTransform.position,
+            Quaternion.Euler(0f, carTransform.eulerAngles.y, 0f) * Vector3.forward * 1.5f);
     }
 }
