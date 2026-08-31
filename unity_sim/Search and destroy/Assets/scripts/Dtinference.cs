@@ -1,8 +1,8 @@
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.AI;
 using UnityEngine.InputSystem;
 using Unity.InferenceEngine;
-
 
 public class DTInference : MonoBehaviour
 {
@@ -12,39 +12,61 @@ public class DTInference : MonoBehaviour
     [Header("References")]
     public Chassis chassis;
     public Transform carTransform;
-    public Transform target; // ten sam obiekt, ktorego uzywa CarAgent / AutoExplorer
+    public Transform target;
+    public CarAgent carAgent;   // do odczytu flagi kolizji (kara -2.0 w nagrodzie)
 
     [Header("Decision Timing")]
-    [Tooltip("Co ile sekund DT podejmuje nowa decyzje o waypoincie. Powinno byc RZADZIEJ niz driver steruje (driver dziala co FixedUpdate).")]
+    [Tooltip("Co ile sekund DT wybiera nowy waypoint. MUSI zgadzac sie z decymacja w build_dt_dataset.py: DECIMATE = decisionInterval / rewardTickInterval.")]
     public float decisionInterval = 1.5f;
 
-    [Header("Model Config (MUSI zgadzac sie z konfiguracja treningowa)")]
+    [Tooltip("Krok liczenia nagrody. MUSI rownac sie logIntervalSeconds z DTDataLogger (0.1 = 10 Hz), bo return-to-go w danych jest sumowany z ta czestotliwoscia.")]
+    public float rewardTickInterval = 0.1f;
+
+    [Header("Model Config (z wydruku export_to_onnx.py)")]
     public int contextLength = 20;
     public int stateDim = 20;
     public int actionDim = 2;
+    [Tooltip("max_ep_len z checkpointu. Timesteps sa przycinane do maxEpLen-1, inaczej embedding wyjdzie poza zakres przy dluzszej jezdzie.")]
+    public int maxEpLen = 77;
+    [Tooltip("Musi zgadzac sie z ZERO_ACTIONS_IN_CONTEXT z train_dt.py. Model trenowany z zerami nigdy nie widzial prawdziwych akcji na wejsciu.")]
+    public bool zeroActionsInContext = true;
 
     [Header("Return-to-go Conditioning")]
-    [Tooltip("Poczatkowy target return - im wyzszy, tym model probuje 'nasladowac' lepsze zademonstrowane epizody. Dobierz na podstawie sum nagrod z build_dataset.py.")]
-    public float initialTargetReturn = 50f;
+    [Tooltip("Dobierz z wydruku build_dt_dataset.py (kolumna 'suma nagrod'). Returny sa teraz w wiekszosci UJEMNE - nie zostawiaj 50, to ekstrapolacja daleko poza obserwowany zakres.")]
+    public float initialTargetReturn = 0f;
 
-    [Header("Reward Function (MUSI byc IDENTYCZNE jak w build_dataset.py)")]
+    [Header("Reward Function (IDENTYCZNA jak w build_dt_dataset.py)")]
     public float gridCellSize = 1.0f;
     public float coverageReward = 1.0f;
     public float stepPenalty = -0.01f;
+    public float collisionPenalty = -2.0f;
+
+    [Header("Diagnostyka")]
+    [Tooltip("Wymusza akcje (0, 1.5) zamiast predykcji modelu. Target MUSI wtedy pojawic sie dokladnie PRZED maska auta. Jesli pojawia sie z boku lub z tylu - blad jest w konwersji ukladu, nie w modelu.")]
+    public bool debugForceForward = false;
+    [Tooltip("Rzutuje waypoint na NavMesh. Model nie ma pojecia o scianach - 42% jego predykcji jest odchylonych o wiecej niz 45 st, wiec czesc celow ladowalaby w geometrii.")]
+    public bool projectOntoNavMesh = true;
+    public float navMeshSampleRadius = 1.5f;
+    public bool drawGizmos = true;
 
     [Header("Runtime State (read-only)")]
+    [Tooltip("Ostatnia akcja modelu w ukladzie auta, w metrach: x = w prawo, z = do przodu.")]
+    public Vector2 lastLocalAction;
+    public int waypointsOffNavMesh = 0;
     public bool isActive = false;
     public float currentReturnToGo;
     public int decisionCount = 0;
+    public int cellsVisited = 0;
 
     private Worker m_Worker;
-    private float timer = 0f;
+    private float decisionTimer = 0f;
+    private float rewardTimer = 0f;
+    private float pendingReward = 0f;
 
-    private List<float[]> stateHistory = new List<float[]>();
-    private List<float[]> actionHistory = new List<float[]>();
-    private List<float> returnToGoHistory = new List<float>();
-
-    private HashSet<Vector2Int> visitedCells = new HashSet<Vector2Int>();
+    private readonly List<float[]> stateHistory = new List<float[]>();
+    private readonly List<float[]> actionHistory = new List<float[]>();
+    private readonly List<float> returnToGoHistory = new List<float>();
+    private readonly HashSet<Vector2Int> visitedCells = new HashSet<Vector2Int>();
 
     void Start()
     {
@@ -60,85 +82,87 @@ public class DTInference : MonoBehaviour
         visitedCells.Clear();
 
         currentReturnToGo = initialTargetReturn;
-        timer = 0f;
+        decisionTimer = 0f;
+        rewardTimer = 0f;
+        pendingReward = 0f;
         decisionCount = 0;
+        cellsVisited = 0;
         isActive = true;
 
-        Debug.Log($"[DTInference] Started. initialTargetReturn={initialTargetReturn}");
+        MakeDecision();   // pierwszy waypoint natychmiast, bez czekania
+        Debug.Log($"[DTInference] Start. initialTargetReturn={initialTargetReturn}");
     }
 
-    public void StopInference()
-    {
-        isActive = false;
-    }
+    public void StopInference() { isActive = false; }
 
     void Update()
     {
-        var keyboard = Keyboard.current;
-        if (keyboard != null)
+        var kb = Keyboard.current;
+        if (kb != null)
         {
-            if (keyboard.iKey.wasPressedThisFrame && !isActive) StartInference();
-            if (keyboard.oKey.wasPressedThisFrame && isActive) StopInference();
+            if (kb.iKey.wasPressedThisFrame && !isActive) StartInference();
+            if (kb.oKey.wasPressedThisFrame && isActive) StopInference();
         }
-
         if (!isActive) return;
 
-        timer += Time.deltaTime;
-        if (timer < decisionInterval) return;
-        timer = 0f;
-
-        MakeDecision();
+        decisionTimer += Time.deltaTime;
+        if (decisionTimer >= decisionInterval)
+        {
+            decisionTimer = 0f;
+            MakeDecision();
+        }
     }
 
-    private float ComputeStepReward()
+    void FixedUpdate()
     {
+        if (!isActive) return;
+
+        rewardTimer += Time.fixedDeltaTime;
+        if (rewardTimer < rewardTickInterval) return;
+        rewardTimer = 0f;
+
+        float r = stepPenalty;
 
         Vector2Int cell = new Vector2Int(
             Mathf.FloorToInt(carTransform.position.x / gridCellSize),
-            Mathf.FloorToInt(carTransform.position.z / gridCellSize)
-        );
-
-        float r = stepPenalty;
-        if (!visitedCells.Contains(cell))
+            Mathf.FloorToInt(carTransform.position.z / gridCellSize));
+        if (visitedCells.Add(cell))
         {
-            visitedCells.Add(cell);
             r += coverageReward;
+            cellsVisited = visitedCells.Count;
         }
-        return r;
+
+        if (carAgent != null && carAgent.hadCollisionThisStep)
+        {
+            r += collisionPenalty;
+            carAgent.hadCollisionThisStep = false;
+        }
+
+        pendingReward += r;
     }
 
     private float[] GetCurrentStateVector()
     {
-
         float[] telemetry = chassis.GetTelemetryState();
-
         float[] state = new float[stateDim];
         state[0] = carTransform.position.x;
         state[1] = carTransform.position.z;
         state[2] = carTransform.eulerAngles.y;
-        for (int i = 0; i < telemetry.Length; i++)
-        {
+        for (int i = 0; i < telemetry.Length && 3 + i < stateDim; i++)
             state[3 + i] = telemetry[i];
-        }
         return state;
     }
 
     private void MakeDecision()
     {
+        currentReturnToGo -= pendingReward;
+        pendingReward = 0f;
 
-        if (decisionCount > 0)
-        {
-            float reward = ComputeStepReward();
-            currentReturnToGo -= reward;
-        }
-
-        float[] currentState = GetCurrentStateVector();
-
-        stateHistory.Add(currentState);
+        stateHistory.Add(GetCurrentStateVector());
         returnToGoHistory.Add(currentReturnToGo);
         actionHistory.Add(new float[actionDim]);
 
-        if (stateHistory.Count > contextLength)
+        while (stateHistory.Count > contextLength)
         {
             stateHistory.RemoveAt(0);
             actionHistory.RemoveAt(0);
@@ -156,23 +180,19 @@ public class DTInference : MonoBehaviour
 
         for (int i = 0; i < contextLength; i++)
         {
-            if (i < pad)
-            {
-                for (int j = 0; j < stateDim; j++) statesTensor[0, i, j] = 0f;
-                for (int j = 0; j < actionDim; j++) actionsTensor[0, i, j] = 0f;
-                rtgTensor[0, i, 0] = 0f;
-                timestepsTensor[0, i] = 0;
-                maskTensor[0, i] = 0f;
-            }
-            else
-            {
-                int histIdx = i - pad;
-                for (int j = 0; j < stateDim; j++) statesTensor[0, i, j] = stateHistory[histIdx][j];
-                for (int j = 0; j < actionDim; j++) actionsTensor[0, i, j] = actionHistory[histIdx][j];
-                rtgTensor[0, i, 0] = returnToGoHistory[histIdx];
-                timestepsTensor[0, i] = decisionCount - (tlen - 1) + histIdx;
-                maskTensor[0, i] = 1f;
-            }
+
+            int histIdx = Mathf.Max(0, i - pad);
+
+            for (int j = 0; j < stateDim; j++)
+                statesTensor[0, i, j] = stateHistory[histIdx][j];
+            for (int j = 0; j < actionDim; j++)
+                actionsTensor[0, i, j] = zeroActionsInContext ? 0f : actionHistory[histIdx][j];
+
+            rtgTensor[0, i, 0] = returnToGoHistory[histIdx];
+
+            int ts = decisionCount - (tlen - 1) + histIdx;
+            timestepsTensor[0, i] = Mathf.Clamp(ts, 0, maxEpLen - 1);
+            maskTensor[0, i] = 1f;
         }
 
         m_Worker.SetInput("states", statesTensor);
@@ -183,20 +203,39 @@ public class DTInference : MonoBehaviour
         m_Worker.Schedule();
 
         var outputTensor = m_Worker.PeekOutput("predicted_action") as Tensor<float>;
-        float[] predicted = outputTensor.DownloadToArray(); // [localDx, localDz], juz w METRACH
+        float[] predicted = outputTensor.DownloadToArray();   // [localDx, localDz] w METRACH
 
         float localDx = predicted[0];
         float localDz = predicted[1];
 
-        actionHistory[actionHistory.Count - 1] = new float[] { localDx / 20f, localDz / 20f };
+        if (debugForceForward) { localDx = 0f; localDz = 1.5f; }
+        lastLocalAction = new Vector2(localDx, localDz);
 
-        float yawRad = carTransform.eulerAngles.y * Mathf.Deg2Rad;
-        float worldDx = localDx * Mathf.Cos(yawRad) - localDz * Mathf.Sin(yawRad);
-        float worldDz = localDx * Mathf.Sin(yawRad) + localDz * Mathf.Cos(yawRad);
+        if (!zeroActionsInContext)
+            actionHistory[actionHistory.Count - 1] = new float[] { localDx, localDz };
 
-        Vector3 newTargetPos = carTransform.position + new Vector3(worldDx, 0f, worldDz);
-        target.position = newTargetPos;
+        Vector3 worldOffset = Quaternion.Euler(0f, carTransform.eulerAngles.y, 0f)
+                              * new Vector3(localDx, 0f, localDz);
+        Vector3 desired = carTransform.position + worldOffset;
 
+        if (projectOntoNavMesh)
+        {
+            if (NavMesh.SamplePosition(desired, out NavMeshHit navHit,
+                                       navMeshSampleRadius, NavMesh.AllAreas))
+            {
+                desired = navHit.position;
+            }
+            else
+            {
+                waypointsOffNavMesh++;   // cel poza zasiegiem NavMesh - zostawiamy poprzedni
+                decisionCount++;
+                statesTensor.Dispose(); actionsTensor.Dispose(); rtgTensor.Dispose();
+                timestepsTensor.Dispose(); maskTensor.Dispose();
+                return;
+            }
+        }
+
+        target.position = desired;
         decisionCount++;
 
         statesTensor.Dispose();
@@ -206,8 +245,18 @@ public class DTInference : MonoBehaviour
         maskTensor.Dispose();
     }
 
-    void OnDestroy()
+    void OnDrawGizmos()
     {
-        m_Worker?.Dispose();
+        if (!drawGizmos || !isActive || carTransform == null || target == null) return;
+
+        Gizmos.color = Color.green;                       // waypoint modelu
+        Gizmos.DrawLine(carTransform.position, target.position);
+        Gizmos.DrawWireSphere(target.position, 0.25f);
+
+        Gizmos.color = Color.cyan;                        // kierunek jazdy auta
+        Gizmos.DrawRay(carTransform.position,
+                       Quaternion.Euler(0f, carTransform.eulerAngles.y, 0f) * Vector3.forward * 1.5f);
     }
+
+    void OnDestroy() { m_Worker?.Dispose(); }
 }
