@@ -384,8 +384,10 @@ MonoBehaviour:
   chassis: {fileID: 1168661422}
   carTransform: {fileID: 1168661415}
   autoExplorer: {fileID: 1168661424}
+  carAgent: {fileID: 1168661438}
   logIntervalSeconds: 0.1
   outputFolder: DTDataset
+  instancePrefix: 
   autoEndAfterSteps: 1000
   isRecording: 0
   currentEpisodeId: 0
@@ -413,15 +415,28 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 9d878b7502f4b884a96a9018b221fba1, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::AutoExplorer
-  target: {fileID: 1972327636}
   carTransform: {fileID: 1168661415}
-  spawner: {fileID: 0}
-  retargetInterval: 10
-  minTargetDistance: 5
-  maxTargetDistance: 5
+  target: {fileID: 1972327636}
+  lookAheadDistance: 1.5
+  gridCellSize: 1
+  minTargetDistance: 4
+  candidatesToTry: 12
+  restartWhenComplete: 1
+  replanWhenRemaining: 2
+  maxDeviation: 4
+  replanWhenStuck: 1
   stuckCheckWindow: 3
   stuckDistanceThreshold: 0.3
   isExploring: 0
+  walkableCellCount: 0
+  visitedCellCount: 0
+  coveragePercent: 0
+  progressAlongPath: 0
+  pathTotalLength: 0
+  deviationFromPath: 0
+  pathsPlanned: 0
+  stuckReplans: 0
+  mapRestarts: 0
 --- !u!114 &1168661434
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -434,21 +449,44 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c0685c46e5dc5ba4cafddaa6b3735dbd, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::DTInference
-  dtModelAsset: {fileID: 5022602860645237092, guid: 72be7788b80d8f545b59a9efc1292e02, type: 3}
+  dtModelAsset: {fileID: 5022602860645237092, guid: fb9a9df03fe4b024bb68ad15fc4e10b3, type: 3}
   chassis: {fileID: 1168661422}
   carTransform: {fileID: 1168661415}
   target: {fileID: 1972327636}
+  carAgent: {fileID: 0}
   decisionInterval: 1.5
+  rewardTickInterval: 0.1
   contextLength: 20
   stateDim: 20
   actionDim: 2
-  initialTargetReturn: 40
+  maxEpLen: 77
+  zeroActionsInContext: 1
+  initialTargetReturn: 0
   gridCellSize: 1
   coverageReward: 1
   stepPenalty: -0.01
+  collisionPenalty: -2
+  debugForceForward: 0
+  projectOntoNavMesh: 1
+  navMeshSampleRadius: 1.5
+  drawGizmos: 1
+  lastLocalAction: {x: 0, y: 0}
+  waypointsOffNavMesh: 0
   isActive: 0
   currentReturnToGo: 0
   decisionCount: 0
+  cellsVisited: 0
+--- !u!114 &1168661438 stripped
+MonoBehaviour:
+  m_CorrespondingSourceObject: {fileID: 1367154458079631583, guid: 6e201d291709c4947b87f26e5dbf6949, type: 3}
+  m_PrefabInstance: {fileID: 8517203323252249285}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1168661414}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d7f8541871d63dd47b7f7faa91d11783, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::CarAgent
 --- !u!1 &1479766194
 GameObject:
   m_ObjectHideFlags: 0
@@ -701,7 +739,7 @@ PrefabInstance:
     - target: {fileID: 5912225504694436308, guid: 6e201d291709c4947b87f26e5dbf6949, type: 3}
       propertyPath: m_Model
       value: 
-      objectReference: {fileID: 5022602860645237092, guid: 4960fbb003479f243ab838c7870fd15f, type: 3}
+      objectReference: {fileID: 5022602860645237092, guid: b2127fa335628ed42844b9442af897ea, type: 3}
     - target: {fileID: 5912225504694436308, guid: 6e201d291709c4947b87f26e5dbf6949, type: 3}
       propertyPath: m_BehaviorType
       value: 0
