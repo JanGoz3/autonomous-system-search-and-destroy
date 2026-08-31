@@ -27,6 +27,10 @@ public class CarAgent : Agent
     public float speedSensitivity = 0.25f;
     public float turretSensitivity = 4f;
 
+
+    [HideInInspector]
+    public bool hadCollisionThisStep = false;
+
     private float m_currentSteering = 0f;
     private float m_currentSpeed = 0f;
     private float m_currentPitch = 0f;
@@ -38,7 +42,7 @@ public class CarAgent : Agent
         if (chassis != null)
         {
             chassis.SetNeutral();
-            
+
             if (chassis.carRigidbody != null)
             {
                 chassis.carRigidbody.linearVelocity = Vector3.zero;
@@ -49,7 +53,7 @@ public class CarAgent : Agent
         Vector3 safeSpawnLocation = spawner.GetRandomSafePoint();
 
         transform.SetPositionAndRotation(
-            safeSpawnLocation + new Vector3(0, 0.1f, 0), 
+            safeSpawnLocation + new Vector3(0, 0.1f, 0),
             Quaternion.Euler(0, Random.Range(0f, 360f), 0)
         );
 
@@ -58,13 +62,13 @@ public class CarAgent : Agent
 
         // Spawn the target CLOSE to the car (Curriculum Learning)
         // We pick a random direction, multiply by your radius, and add it to the car's position
-        
+
         bool foundValidSpawn = false;
         for (int i = 0; i < 10; i++)
         {
             Vector2 randomCircle = Random.insideUnitCircle.normalized * dynamicRadius;
             Vector3 nearCarPosition = transform.position + new Vector3(randomCircle.x, 0, randomCircle.y);
-            
+
             NavMeshHit hit;
             if (NavMesh.SamplePosition(nearCarPosition, out hit, 5.0f, NavMesh.AllAreas))
             {
@@ -101,9 +105,10 @@ public class CarAgent : Agent
 
     void OnCollisionEnter(Collision collision) {
         if (collision.gameObject.CompareTag("object")) {
+            hadCollisionThisStep = true;
             //SetReward(-1.0f);
             //EndEpisode();
-        }       
+        }
     }
 
     public override void OnActionReceived(ActionBuffers actions)
@@ -126,7 +131,7 @@ public class CarAgent : Agent
         // TODO: Rewards system
         // 1. Reached Target (Big Reward)
         if (currentDistance < 0.3f) {
-            //Debug.Log("Found target");
+            // Debug.Log("Found target");
             //SetReward(5.0f);
             //EndEpisode();
         } 
