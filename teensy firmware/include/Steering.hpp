@@ -76,13 +76,21 @@ public:
     {
         if (m_isInitialized)
         {
-            // float swingConstrained = (swing < m_SwingConstraintLeft) ? m_SwingConstraintLeft : ((swing > m_SwingConstraintRight) ? m_SwingConstraintRight : swing);
-            float swingConstrained = constrain(swing, m_SwingConstraintLeft, m_SwingConstraintRight );
+            float swingConstrained = constrain(swing, m_SwingConstraintLeft, m_SwingConstraintRight);
+            
+            int pwmSignal;
+            if (swingConstrained >= 0.0f)
+            {
+                pwmSignal = m_zeroPWMSignalInMicroseconds + (swingConstrained * (m_maximumPWMSignalLengtoInMicroseconds - m_zeroPWMSignalInMicroseconds));
+            }
+            else
+            {
+                pwmSignal = m_zeroPWMSignalInMicroseconds + (swingConstrained * (m_zeroPWMSignalInMicroseconds - m_minimumPWMSignalLengthInMicroseconds));
+            }
 
-            m_steeringPWM.write(convertSwingToDegrees(swingConstrained));
+            m_steeringPWM.writeMicroseconds(pwmSignal);
             m_currentSetSwing = swingConstrained;
         }
-
     }
 
     void SetSteering(int swing)
