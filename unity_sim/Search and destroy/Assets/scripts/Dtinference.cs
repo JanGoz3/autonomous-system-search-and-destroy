@@ -155,7 +155,7 @@ public class DTInference : MonoBehaviour
 
     private void MakeDecision()
     {
-        currentReturnToGo -= pendingReward;
+//        currentReturnToGo -= pendingReward;
         pendingReward = 0f;
 
         stateHistory.Add(GetCurrentStateVector());

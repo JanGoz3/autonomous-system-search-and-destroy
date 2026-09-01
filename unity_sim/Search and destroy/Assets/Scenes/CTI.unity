@@ -1379,6 +1379,7 @@ GameObject:
   m_Component:
   - component: {fileID: 938078856}
   - component: {fileID: 938078855}
+  - component: {fileID: 938078857}
   m_Layer: 0
   m_Name: CoverageRoute
   m_TagString: Untagged
@@ -1509,6 +1510,38 @@ Transform:
   - {fileID: 896476227}
   m_Father: {fileID: 754558002}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &938078857
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 938078854}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b9f8bce3e3318ee49b6b789070eba012, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::CoverageBenchmark
+  carTransform: {fileID: 1490094919}
+  carRigidbody: {fileID: 1490094920}
+  target: {fileID: 494817505}
+  carAgent: {fileID: 1490094926}
+  dtInference: {fileID: 1490094921}
+  autoExplorer: {fileID: 1490094922}
+  runSeconds: 300
+  runsPerPolicy: 5
+  seed: 12345
+  timeScale: 4
+  gridCellSize: 1
+  sampleInterval: 5
+  randomWaypointDistance: 1.5
+  decisionInterval: 1.5
+  arenaMin: {x: -20, y: -20}
+  arenaMax: {x: 20, y: 20}
+  countCollisions: 0
+  outputFolder: DTBenchmark
+  running: 0
+  status: nacisnij B
 --- !u!1 &943183704
 GameObject:
   m_ObjectHideFlags: 0
@@ -2677,7 +2710,7 @@ MonoBehaviour:
   actionDim: 2
   maxEpLen: 77
   zeroActionsInContext: 1
-  initialTargetReturn: 35
+  initialTargetReturn: -0.3
   gridCellSize: 1
   coverageReward: 1
   stepPenalty: -0.01
