@@ -39,6 +39,8 @@ UserSettings/
 # --- OS Generated Files ---
 .DS_Store
 Thumbs.db
+
 **/__pycache__/**
 models/YOLO26/data
 models/YOLO26/runs
+models/YOLO26/data2
