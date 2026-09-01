@@ -41,6 +41,7 @@ UserSettings/
 Thumbs.db
 **/__pycache__/**
 models/YOLO26/data
+models/YOLO26/data2
 models/YOLO26/runs
 /unity_sim/test_copycat.py
 /unity_sim/test state subsets.py
