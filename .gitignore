@@ -42,3 +42,15 @@ Thumbs.db
 **/__pycache__/**
 models/YOLO26/data
 models/YOLO26/runs
+/unity_sim/test_copycat.py
+/unity_sim/test state subsets.py
+/unity_sim/test.py
+/unity_sim/knn ceiling.py
+/unity_sim/dt_evaluation.png
+/unity_sim/dt_dataset.pkl
+/unity_sim/dt_checkpoint.pt
+/unity_sim/DecisionTransformer_newest.onnx
+/unity_sim/DecisionTransformer_new.onnx
+/unity_sim/DecisionTransformer.onnx
+/unity_sim/analyze_benchmark.py
+/unity_sim/Ablations.py
