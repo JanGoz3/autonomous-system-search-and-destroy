@@ -3654,6 +3654,10 @@ PrefabInstance:
       propertyPath: MaxStep
       value: 0
       objectReference: {fileID: 0}
+    - target: {fileID: 3123346757780280663, guid: 6e201d291709c4947b87f26e5dbf6949, type: 3}
+      propertyPath: maxSpeedMetersPerSec
+      value: 2
+      objectReference: {fileID: 0}
     - target: {fileID: 3148839876070546964, guid: 6e201d291709c4947b87f26e5dbf6949, type: 3}
       propertyPath: m_Name
       value: Training arena with path
