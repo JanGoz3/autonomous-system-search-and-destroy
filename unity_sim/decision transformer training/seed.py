@@ -22,7 +22,7 @@ import numpy as np
 import torch
 
 import train_dt
-from decision_transformer import DecisionTransformer
+from models.DecisionTransformer.decision_transformer import DecisionTransformer
 
 torch.backends.mha.set_fastpath_enabled(False)
 

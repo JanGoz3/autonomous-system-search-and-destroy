@@ -5,7 +5,7 @@ import random
 import numpy as np
 import torch
 
-from decision_transformer import DecisionTransformer, discount_cumsum
+from models.DecisionTransformer.decision_transformer import DecisionTransformer, discount_cumsum
 
 
 def main():

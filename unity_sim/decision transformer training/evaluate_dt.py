@@ -6,7 +6,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from decision_transformer import DecisionTransformer
+from models.DecisionTransformer.decision_transformer import DecisionTransformer
 
 torch.backends.mha.set_fastpath_enabled(False)
 

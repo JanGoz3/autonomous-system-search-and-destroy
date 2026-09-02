@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import onnxruntime as ort
 
-from decision_transformer import DecisionTransformer
+from models.DecisionTransformer.decision_transformer import DecisionTransformer
 
 torch.backends.mha.set_fastpath_enabled(False)
 
