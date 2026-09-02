@@ -805,7 +805,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::Motor
   maxMotorTorque: 150
   maxBrakeTorque: 300
-  maxSpeedMetersPerSec: 6.7
+  maxSpeedMetersPerSec: 1
 --- !u!114 &1959501400699687109
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -897,12 +897,13 @@ MonoBehaviour:
   hasUpgradedFromAgentParameters: 1
   MaxStep: 5000
   chassis: {fileID: -2845163636235054939}
-  startingPoint: {fileID: 0}
   Target: {fileID: 0}
   spawner: {fileID: 7803501602790189171}
   steeringSensitivity: 3
   speedSensitivity: 0.25
   turretSensitivity: 4
+  hadCollisionThisStep: 0
+  trainingMode: 1
 --- !u!114 &8360594413510804119
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -946,7 +947,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 3a5c9d521e5ef4759a8246a07d52221e, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Unity.ML-Agents::Unity.MLAgents.DecisionRequester
-  DecisionPeriod: 10
+  DecisionPeriod: 5
   DecisionStep: 0
   TakeActionsBetweenDecisions: 1
 --- !u!1 &2927887784979385388
