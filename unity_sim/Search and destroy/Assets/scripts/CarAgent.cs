@@ -148,7 +148,9 @@ public class CarAgent : Agent
         else {
             float distanceMoved = previousDistance - currentDistance;
             AddReward(distanceMoved); 
-            AddReward(-1.0f / MaxStep);
+            if (MaxStep != 0) {
+                AddReward(-1.0f / MaxStep);
+            }
             previousDistance = currentDistance;
         }
 
