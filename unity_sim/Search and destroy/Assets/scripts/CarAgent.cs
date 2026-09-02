@@ -10,14 +10,8 @@ public class CarAgent : Agent
     [Header("Hardware Link")]
     public Chassis chassis;
 
-    [Header("Training Environment")]
-    public Transform startingPoint;
-
     [Header("Target Object")]
     public Transform Target;
-
-    [Header("Target Spawn Radius")]
-    public float tgtSpawnR = 2;
 
     [Header("Navmesh Target Spawner")]
     public LocalNavMeshSpawner spawner;
@@ -36,61 +30,66 @@ public class CarAgent : Agent
     private float m_currentPitch = 0f;
     private float m_currentYaw = 0f;
     private float previousDistance = 0f;
+    private float curriculumProgress = 0f;
+    private float spawnRadius = 1f;
+    private float maxSpawnAngle = 45;
 
+    [Header("Training mode")]
+    public bool trainingMode = true;
     public override void OnEpisodeBegin()
     {
-        if (chassis != null)
-        {
-            chassis.SetNeutral();
-
-            if (chassis.carRigidbody != null)
+        if (trainingMode) {
+            // curriculumProgress = Mathf.Clamp01(Academy.Instance.TotalStepCount / 1e6f);
+            curriculumProgress = 1.0f;
+            if (chassis != null)
             {
-                chassis.carRigidbody.linearVelocity = Vector3.zero;
-                chassis.carRigidbody.angularVelocity = Vector3.zero;
+                chassis.SetNeutral();
+                
+                if (chassis.carRigidbody != null)
+                {
+                    chassis.carRigidbody.linearVelocity = Vector3.zero;
+                    chassis.carRigidbody.angularVelocity = Vector3.zero;
+                }
             }
-        }
 
-        Vector3 safeSpawnLocation = spawner.GetRandomSafePoint();
+            Vector3 safeSpawnLocation = spawner.GetRandomSafePoint();
 
-        transform.SetPositionAndRotation(
-            safeSpawnLocation + new Vector3(0, 0.1f, 0),
-            Quaternion.Euler(0, Random.Range(0f, 360f), 0)
-        );
-
-        // float dynamicRadius = Mathf.Min(25.0f, 1.0f + (Academy.Instance.StepCount / 1000000f));
-        float dynamicRadius = 5f;
-
-        // Spawn the target CLOSE to the car (Curriculum Learning)
-        // We pick a random direction, multiply by your radius, and add it to the car's position
-
-        bool foundValidSpawn = false;
-        for (int i = 0; i < 10; i++)
-        {
-            Vector2 randomCircle = Random.insideUnitCircle.normalized * dynamicRadius;
-            Vector3 nearCarPosition = transform.position + new Vector3(randomCircle.x, 0, randomCircle.y);
-
-            NavMeshHit hit;
-            if (NavMesh.SamplePosition(nearCarPosition, out hit, 5.0f, NavMesh.AllAreas))
+            transform.SetPositionAndRotation(
+                safeSpawnLocation + new Vector3(0, 0.1f, 0), 
+                Quaternion.Euler(0, Random.Range(0f, 360f), 0)
+            );
+        
+        // TARGET SPAWN ##############
+            bool foundValidSpawn = false;
+            for (int i = 0; i < 10; i++)
             {
-                Target.position = hit.position + new Vector3(0, 0.05f, 0);
-                foundValidSpawn = true;
-                break;
+                float randomAngle = Random.Range(-maxSpawnAngle, maxSpawnAngle);
+                Vector3 spawnDirection = Quaternion.Euler(0, randomAngle, 0) * transform.forward;
+                Vector3 nearCarPosition = transform.position + (spawnDirection * spawnRadius);
+                
+                NavMeshHit hit;
+                if (NavMesh.SamplePosition(nearCarPosition, out hit, 5.0f, NavMesh.AllAreas))
+                {
+                    Target.position = hit.position + new Vector3(0, 0.05f, 0);
+                    foundValidSpawn = true;
+                    break;
+                }
             }
-        }
 
-        if (!foundValidSpawn)
-        {
-            Vector3 fallbackPos = spawner.GetRandomSafePoint();
-            Target.position = fallbackPos + new Vector3(0, 0.05f, 0);
+            if (!foundValidSpawn)
+            {
+                Vector3 fallbackPos = spawner.GetRandomSafePoint();
+                Target.position = fallbackPos + new Vector3(0, 0.05f, 0);
+            }   
         }
+        // ###########################
 
-        previousDistance = Vector3.Distance(transform.localPosition, Target.localPosition);
+        previousDistance = Vector3.Distance(transform.position, Target.position);
     }
 
     public override void CollectObservations(VectorSensor sensor)
     {
         if (chassis == null) return;
-
         float[] telemetryData = chassis.GetTelemetryState();
 
         sensor.AddObservation(telemetryData);
@@ -104,22 +103,23 @@ public class CarAgent : Agent
     }
 
     void OnCollisionEnter(Collision collision) {
-        if (collision.gameObject.CompareTag("object")) {
-            hadCollisionThisStep = true;
-            //SetReward(-1.0f);
-            //EndEpisode();
+        if (trainingMode) {
+            if (collision.gameObject.CompareTag("object")) {
+                SetReward(-1.0f);
+                EndEpisode();
+            }       
         }
     }
 
     public override void OnActionReceived(ActionBuffers actions)
     {
-        float aiMotor = actions.ContinuousActions[0];
-        float aiSteering = actions.ContinuousActions[1];
-        float aiCamPitch = actions.ContinuousActions[2];
-        float aiCamYaw = actions.ContinuousActions[3];
+        float aiMotor = Mathf.Clamp(actions.ContinuousActions[0], -1f, 1f);
+        float aiSteering = Mathf.Clamp(actions.ContinuousActions[1], -1f, 1f);
+        float aiCamPitch = Mathf.Clamp(actions.ContinuousActions[2], -1f, 1f);
+        float aiCamYaw = Mathf.Clamp(actions.ContinuousActions[3], -1f, 1f);
 
         // Rewards
-        float currentDistance = Vector3.Distance(transform.localPosition, Target.localPosition);
+        float currentDistance = Vector3.Distance(transform.position, Target.position);
 
         if (chassis != null)
         {
@@ -128,25 +128,28 @@ public class CarAgent : Agent
             chassis.SetCameraServos(aiCamPitch, aiCamYaw);
         }
 
-        // TODO: Rewards system
+        float cameraJitter = Mathf.Abs(aiCamPitch) + Mathf.Abs(aiCamYaw);
+        AddReward(-0.0005f * cameraJitter);
+
+        // REWARDS SYSTEM
         // 1. Reached Target (Big Reward)
-        if (currentDistance < 0.3f) {
-            // Debug.Log("Found target");
-            //SetReward(5.0f);
-            //EndEpisode();
+        // Mathf.Lerp(A, B, t): Stands for "Linear Interpolation". It blends between value A and value B based on a percentage t.
+        if (trainingMode && currentDistance < Mathf.Lerp(0.7f, 0.3f, curriculumProgress)) {
+            //Debug.Log("Found target");
+
+            Vector3 directionToTarget = (Target.position - transform.position).normalized;
+            float alignment = Vector3.Dot(transform.forward, directionToTarget);
+            float formBonus = Mathf.Clamp01(alignment);
+            float finalWinReward = 15.0f + (10.0f * formBonus);
+            SetReward(finalWinReward);
+            EndEpisode();
         } 
         // 3. Still playing
         else {
             float distanceMoved = previousDistance - currentDistance;
             AddReward(distanceMoved); 
+            AddReward(-1.0f / MaxStep);
             previousDistance = currentDistance;
-
-            // float forwardSpeed = Vector3.Dot(chassis.carRigidbody.linearVelocity, transform.forward);
-            // if(forwardSpeed > 0.5f) {
-            //     float straightness = 1.0f - Mathf.Abs(aiSteering);
-            //     float movementReward = forwardSpeed * 0.0002f * straightness;
-            //     AddReward(movementReward);
-            //}
         }
 
     }

@@ -2105,6 +2105,10 @@ PrefabInstance:
       value: ceiling
       objectReference: {fileID: 0}
     - target: {fileID: 919132149155446097, guid: 035beb1226363a742b34dfaddca9e91e, type: 3}
+      propertyPath: m_Layer
+      value: 6
+      objectReference: {fileID: 0}
+    - target: {fileID: 919132149155446097, guid: 035beb1226363a742b34dfaddca9e91e, type: 3}
       propertyPath: m_IsActive
       value: 1
       objectReference: {fileID: 0}
@@ -2340,13 +2344,25 @@ PrefabInstance:
       propertyPath: tgtSpawnR
       value: 2
       objectReference: {fileID: 0}
+    - target: {fileID: 4343244939710582110, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
+      propertyPath: m_LocalPosition.x
+      value: 0.21
+      objectReference: {fileID: 0}
+    - target: {fileID: 4343244939710582110, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
+      propertyPath: m_LocalPosition.y
+      value: 0.04
+      objectReference: {fileID: 0}
+    - target: {fileID: 4343244939710582110, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
+      propertyPath: m_LocalPosition.z
+      value: 0.31
+      objectReference: {fileID: 0}
     - target: {fileID: 7049725506177845185, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
       propertyPath: yoloModelAsset
       value: 
       objectReference: {fileID: 5022602860645237092, guid: 4d0e9b9f37e56384aa584ee380d7c8a0, type: 3}
     - target: {fileID: 7355834142376369798, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
       propertyPath: m_LocalPosition.x
-      value: 0.3
+      value: -1.96
       objectReference: {fileID: 0}
     - target: {fileID: 7355834142376369798, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
       propertyPath: m_LocalPosition.y
@@ -2354,7 +2370,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 7355834142376369798, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
       propertyPath: m_LocalPosition.z
-      value: -4.5
+      value: -4.12
       objectReference: {fileID: 0}
     - target: {fileID: 7355834142376369798, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
       propertyPath: m_LocalRotation.w
@@ -2384,6 +2400,10 @@ PrefabInstance:
       propertyPath: m_LocalEulerAnglesHint.z
       value: 0
       objectReference: {fileID: 0}
+    - target: {fileID: 8360594413510804119, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
+      propertyPath: m_Model
+      value: 
+      objectReference: {fileID: 5022602860645237092, guid: 4960fbb003479f243ab838c7870fd15f, type: 3}
     - target: {fileID: 8360594413510804119, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
       propertyPath: m_BrainParameters.VectorObservationSize
       value: 19
@@ -5487,9 +5507,33 @@ PrefabInstance:
     serializedVersion: 3
     m_TransformParent: {fileID: 8422614555799960371}
     m_Modifications:
+    - target: {fileID: 24195054731285035, guid: 3dd0d633a5567d34b85dc52a2f96ea41, type: 3}
+      propertyPath: m_Layer
+      value: 7
+      objectReference: {fileID: 0}
+    - target: {fileID: 161899262824179242, guid: 3dd0d633a5567d34b85dc52a2f96ea41, type: 3}
+      propertyPath: m_Layer
+      value: 7
+      objectReference: {fileID: 0}
+    - target: {fileID: 985457307804945200, guid: 3dd0d633a5567d34b85dc52a2f96ea41, type: 3}
+      propertyPath: m_Layer
+      value: 7
+      objectReference: {fileID: 0}
+    - target: {fileID: 4412077963171834968, guid: 3dd0d633a5567d34b85dc52a2f96ea41, type: 3}
+      propertyPath: m_Layer
+      value: 7
+      objectReference: {fileID: 0}
+    - target: {fileID: 6070434568139924035, guid: 3dd0d633a5567d34b85dc52a2f96ea41, type: 3}
+      propertyPath: m_Layer
+      value: 7
+      objectReference: {fileID: 0}
     - target: {fileID: 6131989185131578555, guid: 3dd0d633a5567d34b85dc52a2f96ea41, type: 3}
       propertyPath: m_Name
       value: target
+      objectReference: {fileID: 0}
+    - target: {fileID: 6131989185131578555, guid: 3dd0d633a5567d34b85dc52a2f96ea41, type: 3}
+      propertyPath: m_Layer
+      value: 7
       objectReference: {fileID: 0}
     - target: {fileID: 6131989185131578555, guid: 3dd0d633a5567d34b85dc52a2f96ea41, type: 3}
       propertyPath: m_IsActive
@@ -5546,6 +5590,10 @@ PrefabInstance:
     - target: {fileID: 6305534196757377312, guid: 3dd0d633a5567d34b85dc52a2f96ea41, type: 3}
       propertyPath: m_LocalEulerAnglesHint.z
       value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 6445094257433230866, guid: 3dd0d633a5567d34b85dc52a2f96ea41, type: 3}
+      propertyPath: m_Layer
+      value: 7
       objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []

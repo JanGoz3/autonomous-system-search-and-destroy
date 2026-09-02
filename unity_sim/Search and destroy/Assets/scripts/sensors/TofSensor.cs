@@ -9,6 +9,11 @@ public class TofSensor : MonoBehaviour
     [Header("Timing")]
     public float timingBudget = 0.05f; 
 
+    [Header ("Detection Settings")]
+    [Tooltip("Select the layers the sensor SHOULD hit, (e.g., Envirnoment / Obstacles)")]
+
+    public LayerMask detectionLayers = ~0;
+
     private float lastUpdateTime = -1f;
     private ushort cachedDistance = 4000;
 
@@ -28,7 +33,7 @@ public class TofSensor : MonoBehaviour
     {
         float maxDistanceMeters = maxDistance / 1000f;
 
-        if (Physics.Raycast(transform.position, transform.forward, out RaycastHit hit, maxDistanceMeters))
+        if (Physics.Raycast(transform.position, transform.forward, out RaycastHit hit, maxDistanceMeters, detectionLayers))
         {
             float distanceMm = hit.distance * 1000f;
             

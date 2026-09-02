@@ -11,6 +11,7 @@ GameObject:
   - component: {fileID: 640581362104574181}
   - component: {fileID: 7396726485366445693}
   - component: {fileID: 1324641742939714948}
+  - component: {fileID: 3468654616627679650}
   m_Layer: 0
   m_Name: wooden_door
   m_TagString: object
@@ -92,3 +93,25 @@ MeshRenderer:
   m_SortingOrder: 0
   m_MaskInteraction: 0
   m_AdditionalVertexStreams: {fileID: 0}
+--- !u!64 &3468654616627679650
+MeshCollider:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8788989615349102709}
+  m_Material: {fileID: 0}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_LayerOverridePriority: 0
+  m_IsTrigger: 0
+  m_ProvidesContacts: 0
+  m_Enabled: 1
+  serializedVersion: 5
+  m_Convex: 0
+  m_CookingOptions: 30
+  m_Mesh: {fileID: 1661259174228010287, guid: e9a863736dada1949be83de7a2b4a1e3, type: 3}
