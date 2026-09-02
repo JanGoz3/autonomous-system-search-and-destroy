@@ -218,7 +218,7 @@ public class AutoExplorer : MonoBehaviour
     private void UpdateTarget()
     {
         Vector3 wp = route.PointAtDistance(progressAlongRoute + lookAheadDistance);
-        target.position = wp;
+        target.position = wp + new Vector3(0, 0.15f, 0);
 
         // ETYKIETA: wektor do pursuit pointa w ukladzie auta
         Vector3 local = Quaternion.Inverse(

@@ -235,7 +235,7 @@ public class DTInference : MonoBehaviour
             }
         }
 
-        target.position = desired;
+        target.position = desired + new Vector3(0, 0.05f, 0);
         decisionCount++;
 
         statesTensor.Dispose();
