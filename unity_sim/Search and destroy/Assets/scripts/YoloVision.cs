@@ -15,6 +15,8 @@ public class YoloVision : MonoBehaviour
     private const int MaxTrackedObjects = 3;
     private const int FeaturesPerObject = 9; // 5 spatial + 4 one-hot classes.
     private readonly float[] m_LatestYoloState = new float[MaxTrackedObjects * FeaturesPerObject];
+
+    private int m_StaggerOffset;
     private const int CLASS_TARGET = 0;
     private const int CLASS_PERSON = 1;
     private const int CLASS_CHAIR = 2;
@@ -35,12 +37,13 @@ public class YoloVision : MonoBehaviour
         var model = ModelLoader.Load(yoloModelAsset);
         m_Worker = new Worker(model, BackendType.GPUCompute);  
         m_InputTensor = new Tensor<float>(new TensorShape(1, 3, 320, 320));
+        m_StaggerOffset = UnityEngine.Random.Range(0, InferenceInterval);
     }
 
     public float[] GetYoloState() 
     {
         // run inference every nth frame
-        if (m_StepCounter % InferenceInterval == 0)
+        if ((m_StepCounter + m_StaggerOffset) % InferenceInterval == 0)
         {
             RunInference();
         }
