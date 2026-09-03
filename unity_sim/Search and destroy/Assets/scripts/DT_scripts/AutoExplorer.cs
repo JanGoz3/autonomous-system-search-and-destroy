@@ -40,6 +40,14 @@ public class AutoExplorer : MonoBehaviour
     [Tooltip("Powyzej tego odchylenia od trasy szukamy rzutu po CALEJ trasie, nie tylko w oknie.")]
     public float maxDeviation = 4f;
 
+    [Header("Tryb pracy")]
+    [Tooltip("Gdy false, AutoExplorer LICZY expertLocalWaypoint, ale NIE rusza obiektu target. "
+           + "Uzywane przez CoverageBenchmark (polityka ExpertFrozen), zeby ekspert dzialal przez "
+           + "TEN SAM interfejs co DT - jeden zamrozony waypoint na decyzje zamiast przeliczania "
+           + "co klatke. Bez tego porownanie DT vs AutoExplorer mierzy warstwe aktuacji, a nie "
+           + "polityke. Przydatne rowniez jako nauczyciel w tle przy DAggerze.")]
+    public bool driveTarget = true;
+
     [Header("Spawn")]
     [Tooltip("Start w losowym punkcie trasy - daje zroznicowane pozycje poczatkowe, ktorych ciagle nagrywanie nie dawalo.")]
     public bool respawnOnStart = true;
@@ -67,6 +75,10 @@ public class AutoExplorer : MonoBehaviour
     public string stuckHotspots = "";
     [Tooltip("ETYKIETA dla DT: wektor do pursuit pointa w ukladzie auta. x = w prawo, z = do przodu, w metrach.")]
     public Vector2 expertLocalWaypoint;
+    [Tooltip("Pursuit point w ukladzie SWIATA. Liczony zawsze, niezaleznie od driveTarget - "
+           + "wlasciwosc ExpertWorldWaypoint nie moze czytac target.position, bo przy "
+           + "driveTarget = false celem steruje kto inny (DT albo benchmark).")]
+    public Vector3 expertWorldWaypointRaw;
 
     private float stuckTimer = 0f;
     private float graceTimer = 0f;
@@ -76,7 +88,7 @@ public class AutoExplorer : MonoBehaviour
     private readonly System.Collections.Generic.List<float> stuckAt =
         new System.Collections.Generic.List<float>();
 
-    public Vector3 ExpertWorldWaypoint => target != null ? target.position : Vector3.zero;
+    public Vector3 ExpertWorldWaypoint => expertWorldWaypointRaw;
     public bool StuckThisFrame { get; private set; }
 
     // =======================================================================
@@ -218,12 +230,17 @@ public class AutoExplorer : MonoBehaviour
     private void UpdateTarget()
     {
         Vector3 wp = route.PointAtDistance(progressAlongRoute + lookAheadDistance);
-        target.position = wp + new Vector3(0, 0.15f, 0);
 
-        // ETYKIETA: wektor do pursuit pointa w ukladzie auta
+        // ETYKIETA liczy sie ZAWSZE, takze gdy ekspert nie steruje autem.
+        // Dzieki temu DTDataLogger dziala bez zmian w kazdym trybie, a przy
+        // DAggerze ekspert moze byc nauczycielem w tle.
         Vector3 local = Quaternion.Inverse(
             Quaternion.Euler(0f, carTransform.eulerAngles.y, 0f)) * Flat(wp - carTransform.position);
         expertLocalWaypoint = new Vector2(local.x, local.z);
+        expertWorldWaypointRaw = wp;
+
+        if (driveTarget)
+            target.position = wp + new Vector3(0, 0.15f, 0);
     }
 
     private void CheckStuck()
@@ -289,9 +306,15 @@ public class AutoExplorer : MonoBehaviour
     {
         if (!isExploring || carTransform == null || target == null) return;
 
-        Gizmos.color = Color.green;                       // pursuit point
-        Gizmos.DrawWireSphere(target.position + Vector3.up * 0.1f, 0.3f);
-        Gizmos.DrawLine(carTransform.position, target.position);
+        Gizmos.color = Color.green;                       // pursuit point EKSPERTA
+        Gizmos.DrawWireSphere(expertWorldWaypointRaw + Vector3.up * 0.1f, 0.3f);
+        Gizmos.DrawLine(carTransform.position, expertWorldWaypointRaw);
+
+        if (!driveTarget && target != null)                // aktywny cel kogos innego
+        {
+            Gizmos.color = Color.yellow;
+            Gizmos.DrawWireCube(target.position + Vector3.up * 0.1f, Vector3.one * 0.3f);
+        }
 
         if (route != null)
         {
