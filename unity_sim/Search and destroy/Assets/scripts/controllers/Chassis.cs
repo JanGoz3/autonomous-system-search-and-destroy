@@ -16,7 +16,8 @@ public class Chassis : MonoBehaviour
     public TofSensor tofSensor;
     public YoloVision yoloVision;
 
-    private float[] m_Telemetry = new float[17];
+    private const int YoloFeatureCount = 27;
+    private readonly float[] m_Telemetry = new float[11 + YoloFeatureCount];
 
     void Awake() 
     {
@@ -64,15 +65,13 @@ public class Chassis : MonoBehaviour
         float maxGyro = 2000f;
         float maxTof = 4000f;
 
-        float[] yoloData = yoloVision.GetYoloState();
         // if (yoloData != null && yoloData.Length > 0) {
         //     Debug.Log("Yolo data: " + string.Join(", ", yoloData));
         // } else {
         //     Debug.Log("Yolo data: No objects detected.");
         // }
 
-        bool yoloDetected = yoloData != null && yoloData.Length >= 6;
-
+        // hardware telemetry
         m_Telemetry[0] = motor.GetCurrentSetSpeed();
         m_Telemetry[1] = steering.GetCurrentSetSwing();
         m_Telemetry[2] = cameraState.pitch;
@@ -88,15 +87,24 @@ public class Chassis : MonoBehaviour
         
         m_Telemetry[10] = Mathf.Clamp(tofSensor.GetDistance() / maxTof, 0f, 1f);
 
-        m_Telemetry[11] = yoloDetected ? yoloData[0] : 0f;
-        m_Telemetry[12] = yoloDetected ? yoloData[1] : 0f;
-        m_Telemetry[13] = yoloDetected ? yoloData[2] : 0f;
-        m_Telemetry[14] = yoloDetected ? yoloData[3] : 0f;
-        m_Telemetry[15] = yoloDetected ? yoloData[4] : 0f;
-        
-        // Remember to mask the Class ID for the Driver network as we discussed!
-        m_Telemetry[16] = yoloDetected ? 1f : 0f;
-        
+        //yolo state
+        if (yoloVision != null)
+        {
+            float[] yoloData = yoloVision.GetYoloState();
+            if (yoloData != null && yoloData.Length >= YoloFeatureCount)
+            {
+                // Fast block copy of all 27 floats into m_Telemetry starting at index 11
+                System.Array.Copy(yoloData, 0, m_Telemetry, 11, YoloFeatureCount);
+            }
+            else
+            {
+                System.Array.Clear(m_Telemetry, 11, YoloFeatureCount);
+            }
+        }
+        else
+        {
+            System.Array.Clear(m_Telemetry, 11, YoloFeatureCount);
+        }        
         return m_Telemetry;
     }
 }
