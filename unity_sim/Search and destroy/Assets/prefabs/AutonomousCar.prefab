@@ -917,7 +917,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Unity.ML-Agents::Unity.MLAgents.Policies.BehaviorParameters
   m_BrainParameters:
-    VectorObservationSize: 19
+    VectorObservationSize: 40
     NumStackedVectorObservations: 3
     m_ActionSpec:
       m_NumContinuousActions: 4
@@ -2147,7 +2147,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 13ec5cde16277f34a974a6ad24a10d7f, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::YoloVision
-  yoloModelAsset: {fileID: 5022602860645237092, guid: 4d0e9b9f37e56384aa584ee380d7c8a0, type: 3}
+  yoloModelAsset: {fileID: 5022602860645237092, guid: 88ffe758b58be7343a8ec98d4cc26671, type: 3}
   cameraRenderTexture: {fileID: 8400000, guid: f313075e0681b9c40a66e60bd3d24840, type: 2}
   yoloCamera: {fileID: 8030466530823842123}
 --- !u!1 &8472829609565199482

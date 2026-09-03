@@ -1,24 +1,39 @@
 using UnityEngine;
 using Unity.InferenceEngine;
- 
+using System.Collections.Generic;
+
 public class YoloVision : MonoBehaviour
 {
     [Header("Inference Config")]
     public ModelAsset yoloModelAsset;
     public RenderTexture cameraRenderTexture;
     public Camera yoloCamera;
-
     private Worker m_Worker;
-    private float[] m_LatestYoloState;
     private Tensor<float> m_InputTensor;
     private const int InferenceInterval = 10; // Run every nth physics tick
     private int m_StepCounter = 0;
+    private const int MaxTrackedObjects = 3;
+    private const int FeaturesPerObject = 9; // 5 spatial + 4 one-hot classes.
+    private readonly float[] m_LatestYoloState = new float[MaxTrackedObjects * FeaturesPerObject];
+    private const int CLASS_TARGET = 0;
+    private const int CLASS_PERSON = 1;
+    private const int CLASS_CHAIR = 2;
+    private const int CLASS_DOOR = 3;
+
+    private struct Detection {
+        public float x, y, w, h, conf, classId;
+        public float area => w * h;
+    }
+    private readonly List<Detection> m_Detections = new List<Detection>(300);
 
     void Start() 
     {
+        if (yoloCamera.enabled) 
+        {
+            Debug.LogWarning("Camera component is active! this will result in frames getting rendered twice. Make sure the camera component is disabled in inspector");
+        }
         var model = ModelLoader.Load(yoloModelAsset);
-        m_Worker = new Worker(model, BackendType.GPUCompute);
-        m_LatestYoloState = new float[6];    
+        m_Worker = new Worker(model, BackendType.GPUCompute);  
         m_InputTensor = new Tensor<float>(new TensorShape(1, 3, 320, 320));
     }
 
@@ -38,7 +53,6 @@ public class YoloVision : MonoBehaviour
         if (cameraRenderTexture == null || yoloCamera == null) return;    
 
         yoloCamera.Render();
-
         TextureConverter.ToTensor(cameraRenderTexture, m_InputTensor, new TextureTransform());
         m_Worker.Schedule(m_InputTensor);
 
@@ -47,39 +61,57 @@ public class YoloVision : MonoBehaviour
 
         System.Array.Clear(m_LatestYoloState, 0, m_LatestYoloState.Length);
 
+        m_Detections.Clear();
+
         int numBoxes = 300;
         int features = 6;
-        float maxConfidence = 0.5f;
-        int bestBoxIndex = -1;
+        float confThreshold = 0.5f;
 
-        for (int i = 0; i < numBoxes; i++) {
-            float confidence = rawOutput[i * features + 4];
+        for (int i = 0; i < numBoxes; i++) 
+        {
+            float conf = rawOutput[i * features + 4];
 
-            if (confidence > maxConfidence) {
-                maxConfidence = confidence;
-                bestBoxIndex = i;
+            if (conf > confThreshold) 
+            {
+                m_Detections.Add(new Detection 
+                {
+                    // center normalized [-1.0, 1.0], where 0 is dead center
+                    // this supposedly makes the network converge faster
+                    x = (rawOutput[i * features + 0] - 160f) / 160f, 
+                    y = (rawOutput[i * features + 1] - 160) / 160f, 
+                    
+                    // size-normalized: [0.0, 1.0]
+                    w = rawOutput[i * features + 2] / 320f, 
+                    h = rawOutput[i * features + 3] / 320f,
+                    conf = conf,
+                    classId = rawOutput[i * features + 5] 
+                });
             }
         }
 
-        // 5. Extract the data if we found something
-        if (bestBoxIndex != -1)
-        {
-            float x = rawOutput[bestBoxIndex * features + 0];
-            float y = rawOutput[bestBoxIndex * features + 1];
-            float w = rawOutput[bestBoxIndex * features + 2];
-            float h = rawOutput[bestBoxIndex * features + 3];
-            float conf = rawOutput[bestBoxIndex * features + 4];
-            float classId = rawOutput[bestBoxIndex * features + 5];
+        // sort by largest area first (closest/most prominent hazards)
+        m_Detections.Sort((a,b) => b.area.CompareTo(a.area));
 
-            // Divide the coordinates by 320 to normalize them from 0.0 to 1.0
-            m_LatestYoloState[0] = x / 320f; 
-            m_LatestYoloState[1] = y / 320f; 
-            m_LatestYoloState[2] = w / 320f;  
-            m_LatestYoloState[3] = h / 320f;  
-            m_LatestYoloState[4] = conf;
-            m_LatestYoloState[5] = classId; 
+        int count = Mathf.Min(m_Detections.Count, MaxTrackedObjects);
+        for (int i = 0; i < count; i++) 
+        {
+            int offset = i * FeaturesPerObject;
+            var d = m_Detections[i];
+
+            // Spatial & Confidence
+            m_LatestYoloState[offset + 0] = d.x;    
+            m_LatestYoloState[offset + 1] = d.y;    
+            m_LatestYoloState[offset + 2] = d.w;    
+            m_LatestYoloState[offset + 3] = d.h;    
+            m_LatestYoloState[offset + 4] = d.conf;
+
+            // One-Hot Class Flags
+            int id = Mathf.RoundToInt(d.classId);
+            m_LatestYoloState[offset + 5] = (id == CLASS_TARGET) ? 1f : 0f;
+            m_LatestYoloState[offset + 6] = (id == CLASS_PERSON) ? 1f : 0f;
+            m_LatestYoloState[offset + 7] = (id == CLASS_CHAIR)  ? 1f : 0f;
+            m_LatestYoloState[offset + 8] = (id == CLASS_DOOR)   ? 1f : 0f;
         }
-        
     }       
 
     void OnDestroy()
