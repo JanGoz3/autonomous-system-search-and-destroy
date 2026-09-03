@@ -39,7 +39,7 @@ class TrainingTracker:
         self.history_std_rewards.append(std_rew)
         self.save_plot()
 
-    def save_plot(self, filename="training_progress.png"):
+    def save_plot(self, filename="unity_sim/driver_training/training_progress.png"):
         if len(self.history_steps) == 0:
             return
 
@@ -74,15 +74,15 @@ GAE_LAMBDA = 0.95
 STACKED_VECTORS = 3
 STATE_SPACE = 40
 ACTION_SPACE = 4
-LEARNING_RATE = 3e-4
-#LEARNING_RATE = 5e-5
+#LEARNING_RATE = 3e-4
+LEARNING_RATE = 5e-5
 PPO_EPOCHS = 4
 MINIBATCH_SIZE = 1024
 CLIP_COEF = 0.2
 ENT_COEF = 0.01
 VF_COEF = 0.5
-CHECKPOINT_FILE = "driver_checkpoint.pth"
-BEST_CHECKPOINT_FILE = "best_driver_checkpoint.pth"
+CHECKPOINT_FILE = "unity_sim/driver_training/driver_checkpoint.pth"
+BEST_CHECKPOINT_FILE = "unity_sim/driver_training/best_driver_checkpoint.pth"
 
 engine_channel = EngineConfigurationChannel()
 engine_channel.set_configuration_parameters(time_scale=5.0)
