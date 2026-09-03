@@ -72,10 +72,10 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 GAMMA = 0.99
 GAE_LAMBDA = 0.95
 STACKED_VECTORS = 3
-STATE_SPACE = 19
+STATE_SPACE = 40
 ACTION_SPACE = 4
-# LEARNING_RATE = 3e-4
-LEARNING_RATE = 5e-5
+LEARNING_RATE = 3e-4
+#LEARNING_RATE = 5e-5
 PPO_EPOCHS = 4
 MINIBATCH_SIZE = 1024
 CLIP_COEF = 0.2
@@ -138,7 +138,7 @@ try:
         device=device, 
         action_space= ACTION_SPACE, 
         state_space = STATE_SPACE * STACKED_VECTORS,
-        buffer_size=10240
+        buffer_size=2048
     )
 
     # TODO: optionally add retrieving from the environment action space and state space

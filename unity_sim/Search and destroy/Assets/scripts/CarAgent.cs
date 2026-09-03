@@ -4,6 +4,7 @@ using Unity.MLAgents.Actuators;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.AI;
+using Unity.VisualScripting;
 
 public class CarAgent : Agent
 {
@@ -15,6 +16,10 @@ public class CarAgent : Agent
 
     [Header("Navmesh Target Spawner")]
     public LocalNavMeshSpawner spawner;
+    [Header("Collision & Recovery")]
+    public float maxStuckDuration = 2.5f;
+    private float m_StuckTimer = 0f;
+    private bool m_IsColliding = false;
 
     [Header("Heuristic Smoothing (Keyboard Only)")]
     public float steeringSensitivity = 3f;
@@ -38,9 +43,12 @@ public class CarAgent : Agent
     public bool trainingMode = true;
     public override void OnEpisodeBegin()
     {
+        m_StuckTimer = 0f;
+        m_IsColliding = false;
+        
         if (trainingMode) {
-            // curriculumProgress = Mathf.Clamp01(Academy.Instance.TotalStepCount / 1e6f);
-            curriculumProgress = 1.0f;
+            curriculumProgress = Mathf.Clamp01(Academy.Instance.TotalStepCount / 1e6f);
+            //curriculumProgress = 1.0f;
             if (chassis != null)
             {
                 chassis.SetNeutral();
@@ -59,7 +67,7 @@ public class CarAgent : Agent
                 Quaternion.Euler(0, Random.Range(0f, 360f), 0)
             );
         
-        // TARGET SPAWN ##############
+            // TARGET SPAWN ##############
             bool foundValidSpawn = false;
             for (int i = 0; i < 10; i++)
             {
@@ -102,12 +110,31 @@ public class CarAgent : Agent
         sensor.AddObservation(relativeTargetPos.z / maxArenaSize);
     }
 
-    void OnCollisionEnter(Collision collision) {
-        if (trainingMode) {
-            if (collision.gameObject.CompareTag("object")) {
-                SetReward(-1.0f);
-                EndEpisode();
-            }       
+    private void OnCollisionEnter(Collision collision) 
+    {
+        if (trainingMode && collision.gameObject.CompareTag("object")) 
+        {
+            m_IsColliding = true;
+            AddReward(-0.5f); // Initial bump penalty; episode does not terminate
+        }       
+    }
+
+    private void OnCollisionStay(Collision collision) 
+    {
+        if (trainingMode && collision.gameObject.CompareTag("object"))
+        {
+            m_IsColliding = true;
+            AddReward(-0.01f); // Minor tick penalty for lingering/pressing into wall
+        }
+    }
+
+    private void OnCollisionExit(Collision collision)
+    {
+        if (trainingMode && collision.gameObject.CompareTag("object"))
+        {
+            m_IsColliding = false;
+            m_StuckTimer = 0f;
+            AddReward(0.3f); // Positive reinforcemenet for freeing itself
         }
     }
 
@@ -131,12 +158,35 @@ public class CarAgent : Agent
         float cameraJitter = Mathf.Abs(aiCamPitch) + Mathf.Abs(aiCamYaw);
         AddReward(-0.0005f * cameraJitter);
 
-        // REWARDS SYSTEM
-        // 1. Reached Target (Big Reward)
-        // Mathf.Lerp(A, B, t): Stands for "Linear Interpolation". It blends between value A and value B based on a percentage t.
-        if (trainingMode && currentDistance < Mathf.Lerp(0.7f, 0.3f, curriculumProgress)) {
-            //Debug.Log("Found target");
+        // WALL RECOVERY AND STUCK TIMER #############################
 
+        if(trainingMode && m_IsColliding)
+        {
+            float speed = (chassis != null && chassis.carRigidbody != null) ? chassis.carRigidbody.linearVelocity.magnitude : 0f;
+            // increment the timer only if the car is immobile
+            if(speed < 0.2f)
+            {
+                m_StuckTimer += Time.fixedDeltaTime;
+            }
+            // car is stuck for too long
+            if (m_StuckTimer >= maxStuckDuration)
+            {
+                SetReward(-1.5f);
+                EndEpisode();
+                return;
+            }
+        }
+        else
+        {
+            m_StuckTimer = 0f;
+        }
+        // ############################
+
+
+        // Reached Target (Big Reward)
+        // Mathf.Lerp(A, B, t): Stands for "Linear Interpolation". It blends between value A and value B based on a percentage t.
+        if (trainingMode && currentDistance < Mathf.Lerp(0.7f, 0.3f, curriculumProgress)) 
+        {
             Vector3 directionToTarget = (Target.position - transform.position).normalized;
             float alignment = Vector3.Dot(transform.forward, directionToTarget);
             float formBonus = Mathf.Clamp01(alignment);
@@ -145,10 +195,16 @@ public class CarAgent : Agent
             EndEpisode();
         } 
         // 3. Still playing
-        else {
+        else 
+        {
             float distanceMoved = previousDistance - currentDistance;
-            AddReward(distanceMoved); 
-            if (MaxStep != 0) {
+            // suppress distance penalty while colliding so reversing away isn't punished.
+            if (!m_IsColliding)
+            {
+                AddReward(distanceMoved);
+            }
+            if (MaxStep != 0)
+            {
                 AddReward(-1.0f / MaxStep);
             }
             previousDistance = currentDistance;
