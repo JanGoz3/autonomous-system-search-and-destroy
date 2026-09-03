@@ -1,4 +1,7 @@
 using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
+using System.Text;
 using UnityEngine;
 using UnityEngine.AI;
 using UnityEngine.InputSystem;
@@ -32,8 +35,8 @@ public class DTInference : MonoBehaviour
     public bool zeroActionsInContext = true;
 
     [Header("Return-to-go Conditioning")]
-    [Tooltip("Dobierz z wydruku build_dt_dataset.py (kolumna 'suma nagrod'). Returny sa teraz w wiekszosci UJEMNE - nie zostawiaj 50, to ekstrapolacja daleko poza obserwowany zakres.")]
-    public float initialTargetReturn = 0f;
+    [Tooltip("UWAGA: przy etykietach eksperta sumy nagrod sa DODATNIE (33..118 w zbadanych epizodach), a RTG=0 wystepuje wylacznie na KONCU epizodu. Zostawienie 0 warunkuje model na zachowanie terminalne. Wpisz ok. p90 z wydruku build_dt_dataset.py.")]
+    public float initialTargetReturn = 100f;
 
     [Header("Reward Function (IDENTYCZNA jak w build_dt_dataset.py)")]
     public float gridCellSize = 1.0f;
@@ -42,12 +45,19 @@ public class DTInference : MonoBehaviour
     public float collisionPenalty = -2.0f;
 
     [Header("Diagnostyka")]
-    [Tooltip("Wymusza akcje (0, 1.5) zamiast predykcji modelu. Target MUSI wtedy pojawic sie dokladnie PRZED maska auta. Jesli pojawia sie z boku lub z tylu - blad jest w konwersji ukladu, nie w modelu.")]
+    [Tooltip("Wymusza akcje (0, 1.5) zamiast predykcji modelu. Target MUSI wtedy pojawic sie dokladnie PRZED maska auta.")]
     public bool debugForceForward = false;
-    [Tooltip("Rzutuje waypoint na NavMesh. Model nie ma pojecia o scianach - 42% jego predykcji jest odchylonych o wiecej niz 45 st, wiec czesc celow ladowalaby w geometrii.")]
+    [Tooltip("Rzutuje waypoint na NavMesh. UWAGA: SamplePosition zwraca najblizszy punkt siatki, nie najblizszy OSIAGALNY - dla celu w scianie zwykle laduje przy jej powierzchni.")]
     public bool projectOntoNavMesh = true;
     public float navMeshSampleRadius = 1.5f;
     public bool drawGizmos = true;
+
+    [Header("Log decyzji (diagnostyka)")]
+    [Tooltip("Zapisuje kazda decyzje do CSV: kat i dlugosc waypointa, pozycje, dystans przejechany od poprzedniej decyzji, przesuniecie przez NavMesh. Analiza: analyze_dt_run.py")]
+    public bool logDecisions = true;
+    public string decisionLogFolder = "DTDecisionLog";
+    [Tooltip("Etykieta trafiajaca do nazwy pliku - np. nazwa polityki albo numer przebiegu.")]
+    public string decisionLogTag = "";
 
     [Header("Runtime State (read-only)")]
     [Tooltip("Ostatnia akcja modelu w ukladzie auta, w metrach: x = w prawo, z = do przodu.")]
@@ -57,6 +67,10 @@ public class DTInference : MonoBehaviour
     public float currentReturnToGo;
     public int decisionCount = 0;
     public int cellsVisited = 0;
+    [Tooltip("Ile decyzji mialo |kat| > 90 st, czyli cel ZA autem. Driver PPO trenowal na celach 1 m przed autem w stozku +/-45 st.")]
+    public int decisionsBehind = 0;
+    [Tooltip("Ile decyzji zapadlo, gdy auto nie ruszylo sie o wiecej niz 0.1 m od poprzedniej decyzji.")]
+    public int decisionsWhileStalled = 0;
 
     private Worker m_Worker;
     private float decisionTimer = 0f;
@@ -67,6 +81,10 @@ public class DTInference : MonoBehaviour
     private readonly List<float[]> actionHistory = new List<float[]>();
     private readonly List<float> returnToGoHistory = new List<float>();
     private readonly HashSet<Vector2Int> visitedCells = new HashSet<Vector2Int>();
+
+    private readonly StringBuilder decisionCsv = new StringBuilder();
+    private Vector3 lastDecisionPos;
+    private float episodeTime = 0f;
 
     void Start()
     {
@@ -87,13 +105,32 @@ public class DTInference : MonoBehaviour
         pendingReward = 0f;
         decisionCount = 0;
         cellsVisited = 0;
+        waypointsOffNavMesh = 0;
+        decisionsBehind = 0;
+        decisionsWhileStalled = 0;
+        episodeTime = 0f;
+        lastDecisionPos = carTransform.position;
         isActive = true;
+
+        decisionCsv.Clear();
+        decisionCsv.AppendLine("decision,t,posX,posZ,yaw,localDx,localDz,angleDeg,magM," +
+                               "movedSinceLast,offNavMesh,navMeshShift,rtg");
 
         MakeDecision();   // pierwszy waypoint natychmiast, bez czekania
         Debug.Log($"[DTInference] Start. initialTargetReturn={initialTargetReturn}");
     }
 
-    public void StopInference() { isActive = false; }
+    public void StopInference()
+    {
+        isActive = false;
+        if (logDecisions) SaveDecisionLog();
+
+        Debug.Log($"[DTInference] Koniec. decyzji={decisionCount}  " +
+                  $"pozaNavMesh={waypointsOffNavMesh}  " +
+                  $"celZaAutem={decisionsBehind}  " +
+                  $"decyzjiWBezruchu={decisionsWhileStalled}  " +
+                  $"komorek={cellsVisited}");
+    }
 
     void Update()
     {
@@ -105,6 +142,7 @@ public class DTInference : MonoBehaviour
         }
         if (!isActive) return;
 
+        episodeTime += Time.deltaTime;
         decisionTimer += Time.deltaTime;
         if (decisionTimer >= decisionInterval)
         {
@@ -155,7 +193,7 @@ public class DTInference : MonoBehaviour
 
     private void MakeDecision()
     {
-//        currentReturnToGo -= pendingReward;
+        // currentReturnToGo -= pendingReward;   // dekrementacja wylaczona swiadomie
         pendingReward = 0f;
 
         stateHistory.Add(GetCurrentStateVector());
@@ -180,7 +218,6 @@ public class DTInference : MonoBehaviour
 
         for (int i = 0; i < contextLength; i++)
         {
-
             int histIdx = Mathf.Max(0, i - pad);
 
             for (int j = 0; j < stateDim; j++)
@@ -214,28 +251,44 @@ public class DTInference : MonoBehaviour
         if (!zeroActionsInContext)
             actionHistory[actionHistory.Count - 1] = new float[] { localDx, localDz };
 
+        // --- diagnostyka: kat, dlugosc, ruch od poprzedniej decyzji -----------
+        float angleDeg = Mathf.Atan2(localDx, localDz) * Mathf.Rad2Deg;
+        float magM = new Vector2(localDx, localDz).magnitude;
+        Vector3 nowPos = carTransform.position;
+        float moved = Vector3.Distance(new Vector3(nowPos.x, 0f, nowPos.z),
+                                       new Vector3(lastDecisionPos.x, 0f, lastDecisionPos.z));
+        lastDecisionPos = nowPos;
+
+        if (Mathf.Abs(angleDeg) > 90f) decisionsBehind++;
+        if (decisionCount > 0 && moved < 0.1f) decisionsWhileStalled++;
+
         Vector3 worldOffset = Quaternion.Euler(0f, carTransform.eulerAngles.y, 0f)
                               * new Vector3(localDx, 0f, localDz);
         Vector3 desired = carTransform.position + worldOffset;
+
+        bool offNavMesh = false;
+        float navShift = 0f;
 
         if (projectOntoNavMesh)
         {
             if (NavMesh.SamplePosition(desired, out NavMeshHit navHit,
                                        navMeshSampleRadius, NavMesh.AllAreas))
             {
+                navShift = Vector3.Distance(desired, navHit.position);
                 desired = navHit.position;
             }
             else
             {
+                offNavMesh = true;
                 waypointsOffNavMesh++;   // cel poza zasiegiem NavMesh - zostawiamy poprzedni
-                decisionCount++;
-                statesTensor.Dispose(); actionsTensor.Dispose(); rtgTensor.Dispose();
-                timestepsTensor.Dispose(); maskTensor.Dispose();
-                return;
             }
         }
 
-        target.position = desired + new Vector3(0, 0.05f, 0);
+        if (!offNavMesh)
+            target.position = desired + new Vector3(0, 0.05f, 0);
+
+        LogDecision(nowPos, angleDeg, magM, localDx, localDz, moved, offNavMesh, navShift);
+
         decisionCount++;
 
         statesTensor.Dispose();
@@ -243,6 +296,40 @@ public class DTInference : MonoBehaviour
         rtgTensor.Dispose();
         timestepsTensor.Dispose();
         maskTensor.Dispose();
+    }
+
+    private void LogDecision(Vector3 pos, float angleDeg, float magM,
+                             float lx, float lz, float moved,
+                             bool offNavMesh, float navShift)
+    {
+        if (!logDecisions) return;
+        var ci = CultureInfo.InvariantCulture;
+        decisionCsv.Append(decisionCount.ToString(ci)).Append(',')
+            .Append(episodeTime.ToString("F2", ci)).Append(',')
+            .Append(pos.x.ToString("F3", ci)).Append(',')
+            .Append(pos.z.ToString("F3", ci)).Append(',')
+            .Append(carTransform.eulerAngles.y.ToString("F2", ci)).Append(',')
+            .Append(lx.ToString("F4", ci)).Append(',')
+            .Append(lz.ToString("F4", ci)).Append(',')
+            .Append(angleDeg.ToString("F2", ci)).Append(',')
+            .Append(magM.ToString("F3", ci)).Append(',')
+            .Append(moved.ToString("F3", ci)).Append(',')
+            .Append(offNavMesh ? "1" : "0").Append(',')
+            .Append(navShift.ToString("F3", ci)).Append(',')
+            .Append(currentReturnToGo.ToString("F2", ci))
+            .AppendLine();
+    }
+
+    private void SaveDecisionLog()
+    {
+        if (decisionCsv.Length == 0) return;
+        string dir = Path.Combine(Application.persistentDataPath, decisionLogFolder);
+        Directory.CreateDirectory(dir);
+        string tag = string.IsNullOrEmpty(decisionLogTag) ? "run" : decisionLogTag;
+        string path = Path.Combine(dir,
+            $"decisions_{tag}_{System.DateTime.Now:yyyyMMdd_HHmmss_fff}.csv");
+        File.WriteAllText(path, decisionCsv.ToString());
+        Debug.Log($"[DTInference] Zapisano log decyzji: {path}");
     }
 
     void OnDrawGizmos()
