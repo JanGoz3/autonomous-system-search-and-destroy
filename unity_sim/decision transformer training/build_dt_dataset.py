@@ -1,4 +1,6 @@
 import pickle
+import re
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -6,7 +8,18 @@ import pandas as pd
 
 
 DATA_DIR = r"C:\Users\Admin\AppData\LocalLow\DefaultCompany\Search and destroy\DTDataset"
-OUTPUT_FILE = "dt_dataset.pkl"
+
+INCLUDE_POSITION = False    # posX, posZ w wektorze stanu (oracle - nie ma go na Teensy)
+INCLUDE_SCAN = True         # scan_dist_*, scan_age_*
+INCLUDE_SCAN_PITCH = True   # scan_pitch_* - pitch, przy ktorym wykonano pomiar
+EXCLUDE_POLICY_OUTPUTS = True
+POLICY_OUTPUT_COLUMNS = ("telem_0", "telem_1", "telem_2", "telem_3")
+SCAN_PITCH_SCALE_DEG = 45.0
+
+OUTPUT_FILE = (f"dt_dataset_pos{int(INCLUDE_POSITION)}"
+               f"_scan{int(INCLUDE_SCAN)}"
+               f"{'p' if INCLUDE_SCAN and INCLUDE_SCAN_PITCH else ''}"
+               f"{'_nocmd' if EXCLUDE_POLICY_OUTPUTS else ''}.pkl")
 
 USE_EXPERT_LABEL = True
 
@@ -35,8 +48,6 @@ STILL_DIST_M = 0.02          # metry - ponizej tego w oknie = auto stoi
 
 KEEP_EVERY_STILL = 10        # z odcinka bezruchu zostaw co N-ta probke
 MIN_VALID_FRACTION = 0.10
-
-NUM_TELEMETRY_COLS = 17
 
 
 def world_to_local(d: np.ndarray, yaw_deg: np.ndarray) -> np.ndarray:
@@ -101,6 +112,7 @@ def thin_still_runs(moving, keep_every=KEEP_EVERY_STILL):
         i = j
     return valid
 
+
 def compute_rewards(df, grid_cell_size=GRID_CELL_SIZE):
     n = len(df)
     rewards = np.zeros(n, dtype=np.float32)
@@ -126,12 +138,67 @@ def compute_return_to_go(rewards):
     return np.cumsum(rewards[::-1])[::-1].astype(np.float32).copy()
 
 
-def build_state_vector(df):
-    telem_cols = [f"telem_{i}" for i in range(NUM_TELEMETRY_COLS)]
-    missing = [c for c in telem_cols if c not in df.columns]
-    if missing:
-        raise ValueError(f"Brakuje kolumn telemetrii w CSV: {missing}")
-    return df[["posX", "posZ", "yaw"] + telem_cols].to_numpy(dtype=np.float32)
+def indexed_columns(df, prefix):
+    columns = sorted(
+        (c for c in df.columns if re.fullmatch(rf"{prefix}[0-9]+", c)),
+        key=lambda c: int(c[len(prefix):]),
+    )
+    expected = [f"{prefix}{i}" for i in range(len(columns))]
+    if columns != expected:
+        raise ValueError(f"Nieciagle indeksy kolumn {prefix} w CSV: {columns}")
+    return columns
+
+
+def get_state_columns(df):
+    telem_cols = indexed_columns(df, "telem_")
+    if not telem_cols:
+        raise ValueError("Brakuje kolumn telemetrii w CSV")
+    if EXCLUDE_POLICY_OUTPUTS:
+        dropped = [c for c in telem_cols if c in POLICY_OUTPUT_COLUMNS]
+        telem_cols = [c for c in telem_cols if c not in POLICY_OUTPUT_COLUMNS]
+        if not dropped:
+            warnings.warn("EXCLUDE_POLICY_OUTPUTS=True, ale w CSV nie ma zadnej "
+                          f"z kolumn {POLICY_OUTPUT_COLUMNS}.")
+
+    columns = (["posX", "posZ"] if INCLUDE_POSITION else []) + ["yaw"] + telem_cols
+    scan_pitch_cols = []
+
+    if INCLUDE_SCAN:
+        distances = indexed_columns(df, "scan_dist_")
+        ages = indexed_columns(df, "scan_age_")
+        if not distances and not ages:
+            warnings.warn("INCLUDE_SCAN=True, ale CSV nie zawiera scan_dist_* ani "
+                          "scan_age_*. Buduje stan bez profilu ToF.")
+        elif len(distances) != len(ages):
+            raise ValueError("CSV musi zawierac pary scan_dist_* i scan_age_* "
+                             "dla tych samych sektorow")
+        else:
+            columns += distances + ages
+            if INCLUDE_SCAN_PITCH:
+                pitches = indexed_columns(df, "scan_pitch_")
+                if not pitches:
+                    warnings.warn("INCLUDE_SCAN_PITCH=True, ale CSV nie zawiera "
+                                  "scan_pitch_*. Buduje stan bez pitcha skanu - "
+                                  "odleglosci z roznych pitchow beda "
+                                  "nierozroznialne w tym samym sektorze.")
+                elif len(pitches) != len(distances):
+                    raise ValueError("Liczba kolumn scan_pitch_* rozni sie od "
+                                     "scan_dist_*")
+                else:
+                    columns += pitches
+                    scan_pitch_cols = pitches
+
+    return columns, scan_pitch_cols
+
+
+def build_state_vector(df, columns, scan_pitch_cols):
+    states = df[columns].to_numpy(dtype=np.float32)
+    # pitch w stopniach ma zakres ok. -40..+22, reszta stanu jest rzedu jednosci -
+    # bez skalowania zdominowalby metryke odleglosci w kNN
+    if scan_pitch_cols:
+        idx = [columns.index(c) for c in scan_pitch_cols]
+        states[:, idx] /= SCAN_PITCH_SCALE_DEG
+    return states
 
 
 def process_episode(csv_path: Path):
@@ -149,7 +216,6 @@ def process_episode(csv_path: Path):
         reached = (df["expert_valid"].to_numpy().astype(bool)
                    if "expert_valid" in df.columns
                    else np.ones(len(df), dtype=bool))
-
         reached &= np.hypot(actions_m[:, 0], actions_m[:, 1]) > 0.05
     elif USE_DISTANCE_RELABEL:
         actions_m, reached = relabel_by_distance(pos, yaw)
@@ -157,7 +223,6 @@ def process_episode(csv_path: Path):
         actions_m, reached = relabel_by_steps(pos, yaw)
 
     moving = moving_mask(pos)
-
     valid = (thin_still_runs(moving) if has_expert else moving) & reached
     valid_frac = valid.mean()
 
@@ -167,8 +232,10 @@ def process_episode(csv_path: Path):
         return None
 
     rewards = compute_rewards(df)
+    state_columns, scan_pitch_cols = get_state_columns(df)
     return {
-        "states": build_state_vector(df),          # (T, 20)
+        "states": build_state_vector(df, state_columns, scan_pitch_cols),
+        "state_columns": state_columns,
         "actions_m": actions_m.astype(np.float32),  # (T, 2) W METRACH
         "valid": valid,                             # (T,) bool - maska do lossu
         "reached": reached,
@@ -206,6 +273,29 @@ def expand_phases(trajectories):
     return out
 
 
+def report_scan_health(trajectories, state_columns):
+    """Diagnostyka profilu: ile sektorow jest swiezych i jak stare sa pomiary.
+
+    Blisko 1 niezerowego sektora = bufor nie akumuluje.
+    Wiek bliski 1 w wiekszosci sektorow = wiezyczka nie omiata zakresu."""
+    dist_idx = [i for i, c in enumerate(state_columns) if c.startswith("scan_dist_")]
+    age_idx = [i for i, c in enumerate(state_columns) if c.startswith("scan_age_")]
+    if not dist_idx:
+        return
+    S = np.concatenate([t["states"] for t in trajectories])
+    nz = (S[:, dist_idx] > 0).sum(axis=1)
+    ages = S[:, age_idx]
+    print(f"\nProfil ToF ({len(dist_idx)} sektorow):")
+    print(f"  niezerowych sektorow na krok: srednia={nz.mean():.1f}  "
+          f"mediana={np.median(nz):.0f}  min={nz.min()}  max={nz.max()}")
+    print(f"  wiek pomiaru: mediana={np.median(ages):.2f}  "
+          f"udzial sektorow z wiekiem 1.0 (przeterminowane): "
+          f"{100 * (ages >= 0.999).mean():.0f}%")
+    if nz.mean() < 2:
+        print("  UWAGA: bufor praktycznie nie akumuluje - sprawdz, czy TofScanBuffer")
+        print("  jest podpiety i czy wiezyczka sie obraca (kolumna turret_yaw_deg).")
+
+
 def main():
     csv_files = sorted(Path(DATA_DIR).glob("episode_*.csv"))
     print(f"Znaleziono {len(csv_files)} plikow CSV")
@@ -218,6 +308,9 @@ def main():
         r = process_episode(p)
         if r is None:
             continue
+        if trajectories and r["state_columns"] != trajectories[0]["state_columns"]:
+            raise ValueError(f"{p.name}: inny schemat stanu niz w poprzednich CSV. "
+                             "Rozdziel pliki z roznymi kolumnami telemetrii/skanu.")
         trajectories.append(r)
         print(f"  {p.name}: {r['episode_length']} krokow, "
               f"wazne={100 * r['valid'].mean():.0f}%, "
@@ -250,34 +343,49 @@ def main():
     total = sum(t["episode_length"] for t in trajectories)
     n_valid = sum(int(t["valid"].sum()) for t in trajectories)
     mag = np.hypot(all_valid[:, 0], all_valid[:, 1])
+    state_columns = trajectories[0]["state_columns"]
 
     print(f"\n--- Podsumowanie ---")
-    print(f"Zrodlo etykiet: {'waypoint eksperta (expert_x/expert_z)' if use_expert else 'relabeling z ruchu auta'}")
+    print(f"Wariant: INCLUDE_POSITION={INCLUDE_POSITION}, INCLUDE_SCAN={INCLUDE_SCAN}, "
+          f"INCLUDE_SCAN_PITCH={INCLUDE_SCAN_PITCH}, "
+          f"EXCLUDE_POLICY_OUTPUTS={EXCLUDE_POLICY_OUTPUTS}")
+    if EXCLUDE_POLICY_OUTPUTS:
+        print(f"  Usunieto ze stanu: {', '.join(POLICY_OUTPUT_COLUMNS)} "
+              "(wyjscia polityki PPO - przeciek etykiety)")
+    else:
+        print("  UWAGA: stan zawiera wyjscia polityki PPO. Model moze nauczyc sie "
+              "przepisywac\n  poprzednia decyzje zamiast czytac otoczenie.")
+    print(f"state_dim={len(state_columns)}, yaw_index={state_columns.index('yaw')}")
+    print(f"Zrodlo etykiet: "
+          f"{'waypoint eksperta (expert_x/expert_z)' if use_expert else 'relabeling z ruchu auta'}")
     print(f"Epizodow: {len(trajectories)}, krokow: {total}")
     print(f"Waznych probek: {n_valid} ({100 * n_valid / total:.0f}%)")
-    print(f"ACTION_SCALE (std, metry): {action_scale:.4f}")
+    print(f"ACTION_SCALE (metry): {action_scale:.4f}")
     print(f"Dlugosc akcji [m]: mediana={np.median(mag):.2f}, "
           f"p90={np.quantile(mag, 0.9):.2f}, max={mag.max():.2f}")
     print(f"Udzial akcji 'do tylu' (local_z < 0): "
           f"{100 * (all_valid[:, 1] < 0).mean():.0f}%")
 
+    report_scan_health(trajectories, state_columns)
+
     rtg = np.concatenate([t["returns_to_go"] for t in trajectories])
     print(f"\nReturn-to-go obserwowany w danych (do wpisania w DTInference):")
-    print(f"  returnToGoMin = {np.percentile(rtg, 1):.0f}   "
-          f"returnToGoMax = {np.percentile(rtg, 99):.0f}")
-    print(f"  mediana={np.median(rtg):.1f}, zakres pelny "
-          f"[{rtg.min():.0f}, {rtg.max():.0f}]")
+    print(f"  zakres [{rtg.min():.0f}, {rtg.max():.0f}], mediana={np.median(rtg):.1f}")
     print(f"  initialTargetReturn ustaw blisko gornego konca, np. "
           f"{np.percentile(rtg, 90):.0f} - wyzej to ekstrapolacja poza dane.")
 
     with open(OUTPUT_FILE, "wb") as f:
         pickle.dump({"trajectories": trajectories,
+                     "state_columns": state_columns,
+                     "include_position": INCLUDE_POSITION,
+                     "include_scan": INCLUDE_SCAN,
+                     "include_scan_pitch": INCLUDE_SCAN_PITCH,
+                     "exclude_policy_outputs": EXCLUDE_POLICY_OUTPUTS,
+                     "scan_pitch_scale_deg": SCAN_PITCH_SCALE_DEG,
                      "action_scale": action_scale,
                      "waypoint_dist": WAYPOINT_DIST if USE_DISTANCE_RELABEL else None},
                     f)
     print(f"\nZapisano do {OUTPUT_FILE}")
-    print("UWAGA: format pliku sie zmienil (dict zamiast listy). "
-          "train_dt.py / evaluate_dt.py / test_ambiguity musza czytac ['trajectories'].")
 
 
 if __name__ == "__main__":
