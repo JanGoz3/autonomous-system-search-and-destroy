@@ -47,8 +47,8 @@ public class CarAgent : Agent
         m_IsColliding = false;
         
         if (trainingMode) {
-            //curriculumProgress = Mathf.Clamp01(Academy.Instance.TotalStepCount + startingStepOffset/ 1e6f);
-            curriculumProgress = 1.0f;
+            curriculumProgress = Mathf.Clamp01((Academy.Instance.TotalStepCount + startingStepOffset)/ 1e6f);
+            //curriculumProgress = 1.0f;
             if (chassis != null)
             {
                 chassis.SetNeutral();
@@ -124,7 +124,7 @@ public class CarAgent : Agent
         if (trainingMode && collision.gameObject.CompareTag("object"))
         {
             m_IsColliding = true;
-            AddReward(-0.01f); // Minor tick penalty for lingering/pressing into wall
+            AddReward(-0.001f); // Minor tick penalty for lingering/pressing into wall
         }
     }
 
@@ -134,7 +134,6 @@ public class CarAgent : Agent
         {
             m_IsColliding = false;
             m_StuckTimer = 0f;
-            AddReward(0.3f); // Positive reinforcemenet for freeing itself
         }
     }
 
@@ -171,7 +170,7 @@ public class CarAgent : Agent
             // car is stuck for too long
             if (m_StuckTimer >= maxStuckDuration)
             {
-                SetReward(-3.5f);
+                SetReward(-5.0f);
                 EndEpisode();
                 return;
             }
