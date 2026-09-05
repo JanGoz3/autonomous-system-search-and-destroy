@@ -151,6 +151,8 @@ try:
         if agent_id in id_to_idx:
             state_tensor[id_to_idx[agent_id]] = torch.tensor(terminal_steps.obs[0][i], dtype=torch.float32).to(device)
 
+    active_agents_mask = torch.zeros(nr_of_agents).to(device)
+
     while True:
         # here the agent is just playing, not learning yet
         with torch.no_grad():
@@ -177,6 +179,7 @@ try:
 
         current_rewards = torch.zeros(nr_of_agents).to(device)
         current_dones = torch.zeros(nr_of_agents).to(device)
+        current_masks = torch.zeros(nr_of_agents).to(device)
 
         # match rewards to agents that are still playing
         for i, agent_id in enumerate(decision_steps.agent_id):
@@ -185,8 +188,10 @@ try:
                 reward = float(decision_steps.reward[i])
                 current_rewards[idx] = reward
                 current_dones[idx] = 0.0
+                current_masks[idx] = active_agents_mask[idx]
                 next_state_tensor[idx] = torch.tensor(decision_steps.obs[0][i], dtype=torch.float32).to(device)
                 current_episode_rewards[idx] += reward
+                active_agents_mask[idx] = 1.0
 
         # match rewards to agents that crashed/finished
         for i, agent_id in enumerate(terminal_steps.agent_id):
@@ -195,12 +200,14 @@ try:
                 reward = float(terminal_steps.reward[i])
                 current_rewards[idx] = reward
                 current_dones[idx] = 1.0
+                current_masks[idx] = active_agents_mask[idx]
                 next_state_tensor[idx] = torch.tensor(terminal_steps.obs[0][i], dtype=torch.float32).to(device)
                 current_episode_rewards[idx] += reward
                 tracker.add_reward(current_episode_rewards[idx])
                 current_episode_rewards[idx] = 0.0
+                active_agents_mask[idx] = 0.0
 
-        buffer.insert(state_tensor, action_tensor, log_prob, value, current_rewards, current_dones)
+        buffer.insert(state_tensor, action_tensor, log_prob, value, current_rewards, current_dones, current_masks)
         state_tensor = next_state_tensor
 
         total_env_steps += nr_of_agents
@@ -241,14 +248,18 @@ try:
             # flattening the data for PPO
             # ex. 2048 steps * 10 agents into 2048 flat rows
 
-            b_states = buffer.states.view(-1, STATE_SPACE * STACKED_VECTORS)
-            b_actions = buffer.actions.view(-1, ACTION_SPACE)
-            b_logprobs = buffer.logprobs.view(-1)
-            b_advantages = advantages.view(-1).to(device)
-            b_returns = returns.view(-1).to(device)
+            b_masks = buffer.masks.view(-1)
+            valid_indices = torch.where(b_masks == 1.0)[0] # Get indices where mask is 1
+
+            b_states = buffer.states.view(-1, STATE_SPACE * STACKED_VECTORS)[valid_indices]
+            b_actions = buffer.actions.view(-1, ACTION_SPACE)[valid_indices]
+            b_logprobs = buffer.logprobs.view(-1)[valid_indices]
+            b_advantages = advantages.view(-1).to(device)[valid_indices]
+            b_returns = returns.view(-1).to(device)[valid_indices]
 
             # PPO requires tracking the total batch size to create mini-batches 
-            b_size = buffer.buffer_size * nr_of_agents
+            # Update b_size to the actual number of valid transitions
+            b_size = len(valid_indices)
             b_inds = torch.arange(b_size)
 
             for epoch in range(PPO_EPOCHS):
