@@ -11,7 +11,7 @@ from models.DecisionTransformer.decision_transformer import DecisionTransformer
 torch.backends.mha.set_fastpath_enabled(False)
 
 CHECKPOINT_FILE = "dt_checkpoint.pt"
-DATASET_FILE = "dt_dataset.pkl"
+DATASET_FILE = None
 PLOT_OUTPUT = "dt_evaluation.png"
 
 NUM_ARROWS = 25
@@ -48,11 +48,11 @@ def load_dataset(path):
     return data, 1.0
 
 
-def apply_yaw_sincos(traj_states):
-    yaw = np.radians(traj_states[:, 2].astype(np.float64))
-    return np.column_stack([traj_states[:, 0:2],
+def apply_yaw_sincos(traj_states, yaw_index):
+    yaw = np.radians(traj_states[:, yaw_index].astype(np.float64))
+    return np.column_stack([traj_states[:, :yaw_index],
                             np.sin(yaw), np.cos(yaw),
-                            traj_states[:, 3:]]).astype(np.float32)
+                            traj_states[:, yaw_index + 1:]]).astype(np.float32)
 
 
 def windowed_predictions(model, traj, ckpt, device=DEVICE):
@@ -60,10 +60,11 @@ def windowed_predictions(model, traj, ckpt, device=DEVICE):
     K = cfg["context_length"]
     states = traj["states"]
     if cfg.get("use_yaw_sincos"):
-        states = apply_yaw_sincos(states)
+        states = apply_yaw_sincos(states, int(cfg.get("yaw_index", 2)))
 
     s_norm = (states - ckpt["state_mean"]) / ckpt["state_std"]
     actions = traj["actions"]
+    zero_actions = bool(cfg.get("zero_actions", False))
     rtg = traj["returns_to_go"].reshape(-1, 1) / cfg["return_scale"]
     T, sd, ad = len(states), s_norm.shape[1], actions.shape[1]
 
@@ -77,7 +78,8 @@ def windowed_predictions(model, traj, ckpt, device=DEVICE):
         lo = max(0, i - K + 1)
         n = i - lo + 1
         S[i, K - n:] = s_norm[lo:i + 1]
-        A[i, K - n:] = actions[lo:i + 1]
+        if not zero_actions:
+            A[i, K - n:] = actions[lo:i + 1]
         R[i, K - n:] = rtg[lo:i + 1]
         TS[i, K - n:] = np.clip(np.arange(lo, i + 1), 0, cfg["max_ep_len"] - 1)
         M[i, K - n:] = 1.0
@@ -105,7 +107,24 @@ def main():
     model, ckpt = load_checkpoint(CHECKPOINT_FILE)
     cfg = ckpt["config"]
     action_scale = cfg.get("action_scale", 1.0)
-    trajectories, _ = load_dataset(DATASET_FILE)
+
+    dataset_file = DATASET_FILE or cfg.get("dataset_file", "dt_dataset.pkl")
+    trajectories, _ = load_dataset(dataset_file)
+
+    cols = cfg.get("state_columns")
+    print(f"Checkpoint: {CHECKPOINT_FILE}")
+    print(f"Dataset:    {dataset_file}")
+    print(f"state_dim={cfg['state_dim']}, yaw_index={cfg.get('yaw_index', 2)}, "
+          f"zero_actions={cfg.get('zero_actions')}")
+    if cols:
+        has_pos = "posX" in cols
+        n_scan = sum(1 for c in cols if c.startswith("scan_dist_"))
+        leak = [c for c in ("telem_0", "telem_1", "telem_2", "telem_3") if c in cols]
+        print(f"Wariant: {'z pozycja' if has_pos else 'BEZ pozycji'}, "
+              f"{n_scan} sektorow skanu, "
+              + (f"UWAGA przeciek: {leak}" if leak else "bez wyjsc polityki"))
+        print(f"Sufit kNN dla porownania: "
+              f"{'2.2 st (pozycja+yaw)' if has_pos else '7.5 st (eksterocepcja)'}")
 
     held = ckpt.get("held_out_files", [])
     val = [t for t in trajectories if t.get("group", t["source_file"]) in held]
@@ -130,9 +149,6 @@ def main():
     p, y = pred[valid], true[valid]
     print(f"Probek ocenianych (tylko valid): {len(y)} z {len(true)}")
 
-    # --- baseline'y ---
-    # "Stoj w miejscu" stracil sens: przy relabelingu po dystansie akcja nigdy
-    # nie jest zerowa, wiec ten baseline jest trywialnie do pobicia i nic nie mowi.
     prev = np.concatenate([np.vstack([tr["actions"][:1], tr["actions"][:-1]])
                            for tr in val])[valid]
     baselines = {
@@ -150,9 +166,6 @@ def main():
         mb = np.mean((b - y) ** 2)
         print(f"{name:30s} {mb:10.6f} {100 * (1 - mse_model / mb):+9.1f}%")
 
-    # --- blad katowy ---
-    # Dlugosc akcji jest teraz niemal stala (waypoint w stalej odleglosci),
-    # wiec o jakosci decyduje KIERUNEK, nie wielkosc.
     ang, ok = angular_error_deg(p, y)
     ang_prev, ok_p = angular_error_deg(prev, y)
     print(f"\nBlad kierunku (stopnie, N={ok.sum()}):")
@@ -161,16 +174,26 @@ def main():
     print(f"  'powtorz poprzednia':     mediana={np.median(ang_prev):5.1f}  "
           f"srednia={ang_prev.mean():5.1f}  <45st: {100 * (ang_prev < 45).mean():.0f}%")
     print("  Losowy kierunek dalby mediane 90 st.")
+    print("\n  UWAGA: to jest ocena w oknie z PRAWDZIWYMI stanami, nie w petli")
+    print("  zamknietej. Metryka nadrzedna to blad autoregresywny (seed.py) oraz")
+    print("  pokrycie w CoverageBenchmark - ta liczba jest tylko gorna granica.")
 
     print(f"\nDlugosc akcji [m]: rzeczywista={np.linalg.norm(y, axis=1).mean() * action_scale:.2f}, "
           f"predykcja={np.linalg.norm(p, axis=1).mean() * action_scale:.2f}")
     print("  Predykcja wyraznie krotsza od rzeczywistej = model usrednia "
           "wielomodalny rozklad kierunkow i wypuszcza wektor do srodka.")
 
-    # --- wykres ---
+    if not (cols and "posX" in cols):
+        print("\nWykres pominiety: wariant bez pozycji w stanie, nie ma czego")
+        print("rysowac w ukladzie mapy. Ocena liczbowa powyzej jest kompletna.")
+        return
+
+    ix, iz = cols.index("posX"), cols.index("posZ")
+    iyaw = int(cfg.get("yaw_index", 2))
     traj = val[0]
     preds = windowed_predictions(model, traj, ckpt)
-    pos, yaw = traj["states"][:, 0:2], traj["states"][:, 2]
+    pos = traj["states"][:, [ix, iz]]
+    yaw = traj["states"][:, iyaw]
     vmask = traj["valid"] if "valid" in traj else np.ones(len(pos), bool)
     idxs = np.flatnonzero(vmask)
     idxs = idxs[np.linspace(0, len(idxs) - 1, min(NUM_ARROWS, len(idxs))).astype(int)]
