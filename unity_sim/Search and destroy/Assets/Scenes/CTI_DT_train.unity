@@ -1499,19 +1499,25 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c0685c46e5dc5ba4cafddaa6b3735dbd, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::DTInference
-  dtModelAsset: {fileID: 5022602860645237092, guid: a95389668a15c1646815a1a52395ec73, type: 3}
+  dtModelAsset: {fileID: 5022602860645237092, guid: 913b9464346a32842b0b632872ff8d99, type: 3}
   chassis: {fileID: 663955676}
+  tofScanBuffer: {fileID: 663955684}
   carTransform: {fileID: 663955667}
   target: {fileID: 494817505}
   carAgent: {fileID: 663955674}
   decisionInterval: 1.5
   rewardTickInterval: 0.1
   contextLength: 20
-  stateDim: 20
+  stateDim: 85
   actionDim: 2
-  maxEpLen: 77
+  maxEpLen: 61
   zeroActionsInContext: 1
-  initialTargetReturn: -0.3
+  includePosition: 1
+  includeScan: 1
+  includeScanPitch: 1
+  excludePolicyOutputs: 1
+  scanPitchScaleDeg: 45
+  initialTargetReturn: 19
   gridCellSize: 1
   coverageReward: 1
   stepPenalty: -0.01
@@ -1584,6 +1590,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::DTDataLogger
   chassis: {fileID: 663955676}
+  servosCamera: {fileID: 663955677}
+  tofScanBuffer: {fileID: 663955684}
   carTransform: {fileID: 663955667}
   autoExplorer: {fileID: 663955670}
   carAgent: {fileID: 663955674}
@@ -1591,7 +1599,7 @@ MonoBehaviour:
   outputFolder: DTDataset
   instancePrefix: 
   autoEndAfterSteps: 1000
-  minEpisodeSteps: 150
+  minEpisodeSteps: 300
   isRecording: 0
   currentEpisodeId: 0
   stepsInCurrentChunk: 0
@@ -1619,6 +1627,36 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 959d11107d79a9b4a8ff3b9c2bc56bcd, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Chassis
+--- !u!114 &663955677 stripped
+MonoBehaviour:
+  m_CorrespondingSourceObject: {fileID: 5146340543588288506, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
+  m_PrefabInstance: {fileID: 778710294}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 663955666}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 835cd35b8a806874e85bd64853290249, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::ServosCamera
+--- !u!114 &663955684
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 663955666}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: cfc82dba0936126458ad225ea55bc411, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::TofScanBuffer
+  tofSensor: {fileID: 1826297953}
+  servosCamera: {fileID: 663955677}
+  sectorCount: 16
+  minYawDegrees: -87.5
+  maxYawDegrees: 40
+  maxMeasurementAgeSeconds: 15
+  freshSectors: 0
 --- !u!4 &680022122 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: -8679921383154817045, guid: 6fb0504ec9dbe344c8bf83bd86738e9e, type: 3}
@@ -2078,7 +2116,7 @@ PrefabInstance:
     - target: {fileID: 8360594413510804119, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
       propertyPath: m_Model
       value: 
-      objectReference: {fileID: 5022602860645237092, guid: da73377842fd4f0409c29dc060772937, type: 3}
+      objectReference: {fileID: 5022602860645237092, guid: 247eda77c3857264a93e8ee4b3825f2c, type: 3}
     - target: {fileID: 8360594413510804119, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
       propertyPath: m_BrainParameters.VectorObservationSize
       value: 40
@@ -2096,6 +2134,9 @@ PrefabInstance:
     - targetCorrespondingSourceObject: {fileID: 2358030015814267893, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
       insertIndex: -1
       addedObject: {fileID: 663955669}
+    - targetCorrespondingSourceObject: {fileID: 2358030015814267893, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 663955684}
   m_SourcePrefab: {fileID: 100100000, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
 --- !u!1001 &784792585
 PrefabInstance:
@@ -2711,7 +2752,7 @@ MonoBehaviour:
   dtInference: {fileID: 663955669}
   autoExplorer: {fileID: 663955670}
   runSeconds: 120
-  runsPerPolicy: 1
+  runsPerPolicy: 5
   seed: 12345
   timeScale: 1
   forceFairExpert: 1
@@ -2722,12 +2763,8 @@ MonoBehaviour:
   sampleInterval: 5
   randomWaypointDistance: 1.5
   decisionInterval: 1.5
-  policiesToRun: 01000000
-  sweepDecisionIntervals:
-  - 0.25
-  - 0.5
-  - 1
-  - 1.5
+  policiesToRun: 
+  sweepDecisionIntervals: []
   spawnOnRoute: 1
   spawnYawJitter: 90
   spawnLateralOffset: 0.3
@@ -4718,6 +4755,17 @@ Transform:
   m_CorrespondingSourceObject: {fileID: -8679921383154817045, guid: b8eeae1841cdfe94faf2fb07d078c539, type: 3}
   m_PrefabInstance: {fileID: 1939278658225700656}
   m_PrefabAsset: {fileID: 0}
+--- !u!114 &1826297953 stripped
+MonoBehaviour:
+  m_CorrespondingSourceObject: {fileID: 8744067710143522492, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
+  m_PrefabInstance: {fileID: 778710294}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 4c53fbac88f8e3747acd8f0be3ccc8dd, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::ToFSensor
 --- !u!1 &1856657811
 GameObject:
   m_ObjectHideFlags: 0
