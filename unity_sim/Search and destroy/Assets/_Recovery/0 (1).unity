@@ -192,7 +192,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 6131989185131578555, guid: 3dd0d633a5567d34b85dc52a2f96ea41, type: 3}
       propertyPath: m_IsActive
-      value: 0
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 6305534196757377312, guid: 3dd0d633a5567d34b85dc52a2f96ea41, type: 3}
       propertyPath: m_LocalPosition.x
@@ -591,17 +591,13 @@ PrefabInstance:
       propertyPath: DecisionStep
       value: 0
       objectReference: {fileID: 0}
-    - target: {fileID: 960083404246799892, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
-      propertyPath: maxSpeedMetersPerSec
-      value: 7
-      objectReference: {fileID: 0}
     - target: {fileID: 2358030015814267893, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
       propertyPath: m_Name
       value: AutonomousCar (1)
       objectReference: {fileID: 0}
     - target: {fileID: 2358030015814267893, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
       propertyPath: m_IsActive
-      value: 0
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 3815576015037651868, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
       propertyPath: Target
@@ -610,10 +606,6 @@ PrefabInstance:
     - target: {fileID: 3815576015037651868, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
       propertyPath: MaxStep
       value: 1000
-      objectReference: {fileID: 0}
-    - target: {fileID: 3815576015037651868, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
-      propertyPath: startingStepOffset
-      value: 266240
       objectReference: {fileID: 0}
     - target: {fileID: 4521541792692793830, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
       propertyPath: 'm_Materials.Array.data[0]'
@@ -666,7 +658,7 @@ PrefabInstance:
     - target: {fileID: 8360594413510804119, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
       propertyPath: m_Model
       value: 
-      objectReference: {fileID: 0}
+      objectReference: {fileID: 5022602860645237092, guid: da73377842fd4f0409c29dc060772937, type: 3}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
@@ -684,17 +676,13 @@ PrefabInstance:
       propertyPath: DecisionStep
       value: 0
       objectReference: {fileID: 0}
-    - target: {fileID: 960083404246799892, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
-      propertyPath: maxSpeedMetersPerSec
-      value: 7
-      objectReference: {fileID: 0}
     - target: {fileID: 2358030015814267893, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
       propertyPath: m_Name
       value: AutonomousCar (4)
       objectReference: {fileID: 0}
     - target: {fileID: 2358030015814267893, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
       propertyPath: m_IsActive
-      value: 0
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 3815576015037651868, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
       propertyPath: Target
@@ -703,10 +691,6 @@ PrefabInstance:
     - target: {fileID: 3815576015037651868, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
       propertyPath: MaxStep
       value: 1000
-      objectReference: {fileID: 0}
-    - target: {fileID: 3815576015037651868, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
-      propertyPath: startingStepOffset
-      value: 266240
       objectReference: {fileID: 0}
     - target: {fileID: 4521541792692793830, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
       propertyPath: 'm_Materials.Array.data[0]'
@@ -759,7 +743,7 @@ PrefabInstance:
     - target: {fileID: 8360594413510804119, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
       propertyPath: m_Model
       value: 
-      objectReference: {fileID: 0}
+      objectReference: {fileID: 5022602860645237092, guid: da73377842fd4f0409c29dc060772937, type: 3}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
@@ -865,7 +849,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 6131989185131578555, guid: 3dd0d633a5567d34b85dc52a2f96ea41, type: 3}
       propertyPath: m_IsActive
-      value: 0
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 6305534196757377312, guid: 3dd0d633a5567d34b85dc52a2f96ea41, type: 3}
       propertyPath: m_LocalPosition.x
@@ -965,7 +949,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 6131989185131578555, guid: 3dd0d633a5567d34b85dc52a2f96ea41, type: 3}
       propertyPath: m_IsActive
-      value: 0
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 6305534196757377312, guid: 3dd0d633a5567d34b85dc52a2f96ea41, type: 3}
       propertyPath: m_LocalPosition.x
@@ -1049,17 +1033,13 @@ PrefabInstance:
       propertyPath: DecisionStep
       value: 0
       objectReference: {fileID: 0}
-    - target: {fileID: 960083404246799892, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
-      propertyPath: maxSpeedMetersPerSec
-      value: 7
-      objectReference: {fileID: 0}
     - target: {fileID: 2358030015814267893, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
       propertyPath: m_Name
       value: AutonomousCar (3)
       objectReference: {fileID: 0}
     - target: {fileID: 2358030015814267893, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
       propertyPath: m_IsActive
-      value: 0
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 3815576015037651868, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
       propertyPath: Target
@@ -1068,10 +1048,6 @@ PrefabInstance:
     - target: {fileID: 3815576015037651868, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
       propertyPath: MaxStep
       value: 1000
-      objectReference: {fileID: 0}
-    - target: {fileID: 3815576015037651868, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
-      propertyPath: startingStepOffset
-      value: 266240
       objectReference: {fileID: 0}
     - target: {fileID: 4521541792692793830, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
       propertyPath: 'm_Materials.Array.data[0]'
@@ -1124,7 +1100,7 @@ PrefabInstance:
     - target: {fileID: 8360594413510804119, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
       propertyPath: m_Model
       value: 
-      objectReference: {fileID: 0}
+      objectReference: {fileID: 5022602860645237092, guid: da73377842fd4f0409c29dc060772937, type: 3}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
@@ -1250,7 +1226,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 6131989185131578555, guid: 3dd0d633a5567d34b85dc52a2f96ea41, type: 3}
       propertyPath: m_IsActive
-      value: 0
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 6305534196757377312, guid: 3dd0d633a5567d34b85dc52a2f96ea41, type: 3}
       propertyPath: m_LocalPosition.x
@@ -1416,17 +1392,13 @@ PrefabInstance:
       propertyPath: DecisionStep
       value: 0
       objectReference: {fileID: 0}
-    - target: {fileID: 960083404246799892, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
-      propertyPath: maxSpeedMetersPerSec
-      value: 7
-      objectReference: {fileID: 0}
     - target: {fileID: 2358030015814267893, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
       propertyPath: m_Name
       value: AutonomousCar (2)
       objectReference: {fileID: 0}
     - target: {fileID: 2358030015814267893, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
       propertyPath: m_IsActive
-      value: 0
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 3815576015037651868, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
       propertyPath: Target
@@ -1435,10 +1407,6 @@ PrefabInstance:
     - target: {fileID: 3815576015037651868, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
       propertyPath: MaxStep
       value: 1000
-      objectReference: {fileID: 0}
-    - target: {fileID: 3815576015037651868, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
-      propertyPath: startingStepOffset
-      value: 266240
       objectReference: {fileID: 0}
     - target: {fileID: 4521541792692793830, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
       propertyPath: 'm_Materials.Array.data[0]'
@@ -1491,7 +1459,7 @@ PrefabInstance:
     - target: {fileID: 8360594413510804119, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
       propertyPath: m_Model
       value: 
-      objectReference: {fileID: 0}
+      objectReference: {fileID: 5022602860645237092, guid: da73377842fd4f0409c29dc060772937, type: 3}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
@@ -5495,10 +5463,6 @@ PrefabInstance:
     serializedVersion: 3
     m_TransformParent: {fileID: 202675296091482614}
     m_Modifications:
-    - target: {fileID: 960083404246799892, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
-      propertyPath: maxSpeedMetersPerSec
-      value: 1
-      objectReference: {fileID: 0}
     - target: {fileID: 2358030015814267893, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
       propertyPath: m_Name
       value: AutonomousCar
@@ -5513,11 +5477,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 3815576015037651868, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
       propertyPath: trainingMode
-      value: 0
-      objectReference: {fileID: 0}
-    - target: {fileID: 3815576015037651868, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
-      propertyPath: startingStepOffset
-      value: 0
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 7355834142376369798, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
       propertyPath: m_LocalPosition.x
@@ -5563,10 +5523,6 @@ PrefabInstance:
       propertyPath: buildingCenter
       value: 
       objectReference: {fileID: 202675296091482614}
-    - target: {fileID: 8360594413510804119, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
-      propertyPath: m_Model
-      value: 
-      objectReference: {fileID: 5022602860645237092, guid: 636472c31c53b1c4c839eb252c88263e, type: 3}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []

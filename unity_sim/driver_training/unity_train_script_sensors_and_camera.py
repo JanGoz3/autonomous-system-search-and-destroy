@@ -39,7 +39,7 @@ class TrainingTracker:
         self.history_std_rewards.append(std_rew)
         self.save_plot()
 
-    def save_plot(self, filename="training_progress.png"):
+    def save_plot(self, filename="unity_sim/driver_training/training_progress.png"):
         if len(self.history_steps) == 0:
             return
 
@@ -81,8 +81,8 @@ MINIBATCH_SIZE = 1024
 CLIP_COEF = 0.2
 ENT_COEF = 0.01
 VF_COEF = 0.5
-CHECKPOINT_FILE = "driver_checkpoint.pth"
-BEST_CHECKPOINT_FILE = "best_driver_checkpoint.pth"
+CHECKPOINT_FILE = "unity_sim/driver_training/driver_checkpoint.pth"
+BEST_CHECKPOINT_FILE = "unity_sim/driver_training/best_driver_checkpoint.pth"
 
 engine_channel = EngineConfigurationChannel()
 engine_channel.set_configuration_parameters(time_scale=5.0)
@@ -97,19 +97,19 @@ tracker = TrainingTracker(window_size=100)
 start_steps = 0
 if os.path.exists(CHECKPOINT_FILE):
     print(f"Loading checkpoint from {CHECKPOINT_FILE}...")
-    checkpoint = torch.load(CHECKPOINT_FILE, map_location=device)
+    checkpoint = torch.load(CHECKPOINT_FILE, map_location=device, weights_only=False)
     model.load_state_dict(checkpoint['model_state_dict'])
     optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
 
     for param_group in optimizer.param_groups:
             param_group['lr'] = LEARNING_RATE
     
-    if 'tracker_history' in checkpoint:
-        tracker.history_steps = checkpoint['tracker_history']['steps']
-        tracker.history_mean_rewards = checkpoint['tracker_history']['means']
-        tracker.history_std_rewards = checkpoint['tracker_history']['stds']
-        if len(tracker.history_steps) > 0:
-            start_steps = tracker.history_steps[-1]
+    # if 'tracker_history' in checkpoint:
+    #     tracker.history_steps = checkpoint['tracker_history']['steps']
+    #     tracker.history_mean_rewards = checkpoint['tracker_history']['means']
+    #     tracker.history_std_rewards = checkpoint['tracker_history']['stds']
+    #     if len(tracker.history_steps) > 0:
+    #         start_steps = tracker.history_steps[-1]
             
     print(f"Resuming training from step {start_steps}!")
 else:

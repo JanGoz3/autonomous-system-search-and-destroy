@@ -4,7 +4,6 @@ using Unity.MLAgents.Actuators;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.AI;
-using Unity.VisualScripting;
 
 public class CarAgent : Agent
 {
@@ -36,19 +35,20 @@ public class CarAgent : Agent
     private float m_currentYaw = 0f;
     private float previousDistance = 0f;
     private float curriculumProgress = 0f;
-    private float spawnRadius = 1f;
+    private float spawnRadius = 3f;
     private float maxSpawnAngle = 45;
 
     [Header("Training mode")]
     public bool trainingMode = true;
+    public float startingStepOffset = 0f;
     public override void OnEpisodeBegin()
     {
         m_StuckTimer = 0f;
         m_IsColliding = false;
         
         if (trainingMode) {
-            curriculumProgress = Mathf.Clamp01(Academy.Instance.TotalStepCount / 1e6f);
-            //curriculumProgress = 1.0f;
+            //curriculumProgress = Mathf.Clamp01(Academy.Instance.TotalStepCount + startingStepOffset/ 1e6f);
+            curriculumProgress = 1.0f;
             if (chassis != null)
             {
                 chassis.SetNeutral();
@@ -73,7 +73,7 @@ public class CarAgent : Agent
             {
                 float randomAngle = Random.Range(-maxSpawnAngle, maxSpawnAngle);
                 Vector3 spawnDirection = Quaternion.Euler(0, randomAngle, 0) * transform.forward;
-                Vector3 nearCarPosition = transform.position + (spawnDirection * spawnRadius);
+                Vector3 nearCarPosition = transform.position + (spawnDirection * Random.Range(1.0f, spawnRadius));
                 
                 NavMeshHit hit;
                 if (NavMesh.SamplePosition(nearCarPosition, out hit, 5.0f, NavMesh.AllAreas))
@@ -171,7 +171,7 @@ public class CarAgent : Agent
             // car is stuck for too long
             if (m_StuckTimer >= maxStuckDuration)
             {
-                SetReward(-1.5f);
+                SetReward(-3.5f);
                 EndEpisode();
                 return;
             }
