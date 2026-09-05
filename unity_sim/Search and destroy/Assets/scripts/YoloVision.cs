@@ -10,7 +10,7 @@ public class YoloVision : MonoBehaviour
     public Camera yoloCamera;
     private Worker m_Worker;
     private Tensor<float> m_InputTensor;
-    private const int InferenceInterval = 10; // Run every nth physics tick
+    private const int InferenceInterval = 5; // Run every nth physics tick
     private int m_StepCounter = 0;
     private const int MaxTrackedObjects = 3;
     private const int FeaturesPerObject = 9; // 5 spatial + 4 one-hot classes.
