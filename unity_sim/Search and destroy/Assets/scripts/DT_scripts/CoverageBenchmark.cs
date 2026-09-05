@@ -175,7 +175,8 @@ public class CoverageBenchmark : MonoBehaviour
                 jobs.Add((p, intervals[0], p.ToString()));
             else
                 foreach (float iv in intervals)
-                    jobs.Add((p, iv, $"{p}@{iv:0.##}"));
+                    jobs.Add((p, iv,
+                        $"{p}@{iv.ToString("0.##", CultureInfo.InvariantCulture)}"));
         }
         Debug.Log($"[Benchmark] Do wykonania: {jobs.Count} x {runsPerPolicy} przebiegow " +
                   $"({string.Join(", ", jobs.ConvertAll(j => j.label))})");
@@ -202,16 +203,6 @@ public class CoverageBenchmark : MonoBehaviour
         status = "gotowe";
     }
 
-    /// <summary>Pozycje startowe wspolne dla wszystkich polityk.
-    ///
-    /// Domyslnie wzdluz trasy: jest z definicji przejezdna, a losowanie w
-    /// prostokacie areny przepuszczalo punkty przy scianach i w narozdnikach.
-    /// NavMesh.SamplePosition uznaje je za poprawne, bo NavMesh jest budowany
-    /// dla agenta o promieniu, a nie dla pojazdu o promieniu skretu - auto
-    /// ustawione maska do sciany musi cofnac, czego driver PPO nie umie
-    /// (nagroda previousDistance - currentDistance karze oddalanie sie od celu,
-    /// a EndEpisode przy kolizji sprawilo, ze stanow przy scianie nigdy nie
-    /// widzial w treningu).</summary>
     private List<Pose> BuildStarts(System.Random rng)
     {
         var starts = new List<Pose>();
@@ -271,7 +262,6 @@ public class CoverageBenchmark : MonoBehaviour
         return starts;
     }
 
-    /// <summary>Odrzuca pozycje, z ktorych auto nie ma jak manewrowac.</summary>
     private bool HasClearance(Vector3 p)
     {
         if (minClearance <= 0f) return true;
@@ -298,7 +288,7 @@ public class CoverageBenchmark : MonoBehaviour
                         $"clearance {minClearance} m)\n"
                       : $"  -> arena X[{arenaMin.x};{arenaMax.x}] Z[{arenaMin.y};{arenaMax.y}]\n") +
                   $"  runSeconds={runSeconds}  runsPerPolicy={runsPerPolicy}  " +
-                  $"decisionInterval={decisionInterval}");
+                  $"decisionInterval={decisionInterval.ToString("0.##", CultureInfo.InvariantCulture)}");
 
         if (carAgent != null && carAgent.trainingMode)
             Debug.LogError("[Benchmark] CarAgent.trainingMode = TRUE. Dojechanie do waypointa " +
@@ -374,8 +364,6 @@ public class CoverageBenchmark : MonoBehaviour
             if (policy == Policy.ExpertFrozen && t >= nextWaypoint)
             {
                 nextWaypoint = t + interval;
-                // zamrazamy pursuit point eksperta w ukladzie SWIATA na caly interwal,
-                // dokladnie tak jak DTInference zamraza swoj waypoint
                 target.position = autoExplorer.ExpertWorldWaypoint + new Vector3(0, 0.05f, 0);
             }
 
