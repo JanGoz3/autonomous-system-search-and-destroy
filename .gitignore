@@ -45,9 +45,9 @@ models/YOLO26/data
 models/YOLO26/data2
 models/YOLO26/runs
 /unity_sim/test_copycat.py
-/unity_sim/test state subsets.py
+/unity_sim/decision transformer training/test state subsets.py
 /unity_sim/test.py
-/unity_sim/knn ceiling.py
+/unity_sim/decision transformer training/knn_ceiling.py
 /unity_sim/dt_evaluation.png
 /unity_sim/dt_dataset.pkl
 /unity_sim/dt_checkpoint.pt
