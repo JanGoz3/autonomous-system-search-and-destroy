@@ -8,7 +8,7 @@ from models.DecisionTransformer.decision_transformer import DecisionTransformer
 
 torch.backends.mha.set_fastpath_enabled(False)
 
-DATASET_FILE = "dt_dataset.pkl"
+DATASET_FILE = "dt_dataset_pos1_scan1p_nocmd.pkl"
 CHECKPOINT_FILE = "dt_checkpoint.pt"
 
 CONTEXT_LENGTH = 20
@@ -37,9 +37,9 @@ USE_YAW_SINCOS = True
 ZERO_ACTIONS_IN_CONTEXT = True
 
 ACTION_HEAD = "discrete"
-N_DIR_BINS = 36          # 36 binow = 10 stopni na bin
-MAG_WEIGHT = 1.0         # waga regresji dlugosci wzgledem cross-entropy
-LABEL_SMOOTH = 0.15      # ile masy oddac na kazdy sasiedni bin
+N_DIR_BINS = 36
+MAG_WEIGHT = 1.0
+LABEL_SMOOTH = 0.15
 
 DEVICE = ("cuda" if torch.cuda.is_available()
           else "mps" if torch.backends.mps.is_available() else "cpu")
@@ -49,20 +49,28 @@ def load_dataset(path):
     with open(path, "rb") as f:
         data = pickle.load(f)
     if isinstance(data, dict):
-        return data["trajectories"], data.get("action_scale", 1.0)
+        return (data["trajectories"], data.get("action_scale", 1.0),
+                data.get("state_columns"))
     print("UWAGA: stary format datasetu (lista). Brak maski 'valid' i action_scale.")
-    return data, 1.0
+    return data, 1.0, None
 
 
-def apply_yaw_sincos(trajectories):
+def resolve_yaw_index(state_columns):
+    if state_columns is None:
+        print("UWAGA: dataset bez 'state_columns' - przyjmuje historyczny yaw_index=2.")
+        return 2
+    return state_columns.index("yaw")
+
+
+def apply_yaw_sincos(trajectories, yaw_index):
     for t in trajectories:
         s = t["states"]
-        yaw = np.radians(s[:, 2].astype(np.float64))
+        yaw = np.radians(s[:, yaw_index].astype(np.float64))
         t["states"] = np.column_stack([
-            s[:, 0:2],
+            s[:, :yaw_index],
             np.sin(yaw).astype(np.float32),
             np.cos(yaw).astype(np.float32),
-            s[:, 3:],
+            s[:, yaw_index + 1:],
         ]).astype(np.float32)
 
 
@@ -131,9 +139,10 @@ def masked_mse(preds, actions, attn_mask, valid_mask):
 
 def train_once(split_seed=SPLIT_SEED, num_iters=NUM_TRAIN_ITERS, verbose=True,
                save_path=CHECKPOINT_FILE):
-    trajectories, action_scale = load_dataset(DATASET_FILE)
+    trajectories, action_scale, state_columns = load_dataset(DATASET_FILE)
+    yaw_index = resolve_yaw_index(state_columns)
     if USE_YAW_SINCOS:
-        apply_yaw_sincos(trajectories)
+        apply_yaw_sincos(trajectories, yaw_index)
 
     groups = sorted({t.get("group", t["source_file"]) for t in trajectories})
     rng_split = np.random.RandomState(split_seed)
@@ -153,6 +162,8 @@ def train_once(split_seed=SPLIT_SEED, num_iters=NUM_TRAIN_ITERS, verbose=True,
 
     if verbose:
         print(f"Urzadzenie: {DEVICE}")
+        print(f"Dataset: {DATASET_FILE}  yaw_index={yaw_index}"
+              + (f"  ({len(state_columns)} kolumn surowych)" if state_columns else ""))
         print(f"Trening: {len(train_traj)} sekwencji, walidacja: {len(val_traj)} "
               f"({len(groups)} grup, {n_val} odlozonych)")
         print(f"Odlozone: {held_out}")
@@ -222,6 +233,9 @@ def train_once(split_seed=SPLIT_SEED, num_iters=NUM_TRAIN_ITERS, verbose=True,
             "return_scale": return_scale,
             "action_scale": action_scale,
             "use_yaw_sincos": USE_YAW_SINCOS,
+            "yaw_index": yaw_index,
+            "state_columns": state_columns,
+            "dataset_file": DATASET_FILE,
             "zero_actions": ZERO_ACTIONS_IN_CONTEXT,
             "action_head": ACTION_HEAD,
             "n_dir_bins": N_DIR_BINS,
