@@ -124,4 +124,9 @@ public class ServosCamera : MonoBehaviour
     {
         return (m_currentSetSwingPitch, m_currentSetSwingYaw);
     }
+
+    public (float pitch, float yaw) GetActualPitchYawDegrees()
+    {
+        return (m_currentPitchAngle, m_currentYawAngle);
+    }
 }
