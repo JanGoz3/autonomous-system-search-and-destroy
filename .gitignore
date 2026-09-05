@@ -56,3 +56,4 @@ models/YOLO26/runs
 /unity_sim/DecisionTransformer.onnx
 /unity_sim/analyze_benchmark.py
 /unity_sim/Ablations.py
+/unity_sim/decision transformer training/analyze_dt_run.py
