@@ -104,12 +104,12 @@ if os.path.exists(CHECKPOINT_FILE):
     for param_group in optimizer.param_groups:
             param_group['lr'] = LEARNING_RATE
     
-    # if 'tracker_history' in checkpoint:
-    #     tracker.history_steps = checkpoint['tracker_history']['steps']
-    #     tracker.history_mean_rewards = checkpoint['tracker_history']['means']
-    #     tracker.history_std_rewards = checkpoint['tracker_history']['stds']
-    #     if len(tracker.history_steps) > 0:
-    #         start_steps = tracker.history_steps[-1]
+    if 'tracker_history' in checkpoint:
+        tracker.history_steps = checkpoint['tracker_history']['steps']
+        tracker.history_mean_rewards = checkpoint['tracker_history']['means']
+        tracker.history_std_rewards = checkpoint['tracker_history']['stds']
+        if len(tracker.history_steps) > 0:
+            start_steps = tracker.history_steps[-1]
             
     print(f"Resuming training from step {start_steps}!")
 else:
@@ -319,14 +319,22 @@ try:
                     'stds': tracker.history_std_rewards
                 }
             }
+            # 1. Always save the standard rolling checkpoint to resume from
             torch.save(save_data, CHECKPOINT_FILE)
             print(f"Checkpoint successfully saved to {CHECKPOINT_FILE}")
 
-            # Save a dedicated copy if we beat our personal best mean reward
+            # 2. Save a dedicated copy with the dynamic reward name if we beat our personal best
             if mean_rew > best_mean_reward:
                 best_mean_reward = mean_rew
-                torch.save(save_data, BEST_CHECKPOINT_FILE)
-                print(f"*** NEW ALL-TIME BEST MODEL. Saved to {BEST_CHECKPOINT_FILE} (Reward: {mean_rew:.2f}) ***")
+                
+                # Format the reward from a float like 20.5833 to a string like "20_58"
+                formatted_reward = f"{mean_rew:.2f}".replace('.', '_')
+                
+                # Construct the dynamic file name
+                dynamic_best_file = f"unity_sim/driver_training/driver_checkpoint_{formatted_reward}.pth"
+                
+                torch.save(save_data, dynamic_best_file)
+                print(f"*** NEW ALL-TIME BEST MODEL. Saved to {dynamic_best_file} (Reward: {mean_rew:.2f}) ***")
 
             # ==========================================
 

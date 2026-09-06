@@ -47,8 +47,8 @@ public class CarAgent : Agent
         m_IsColliding = false;
         
         if (trainingMode) {
-            curriculumProgress = Mathf.Clamp01((Academy.Instance.TotalStepCount + startingStepOffset)/ 1e6f);
-            //curriculumProgress = 1.0f;
+            //curriculumProgress = Mathf.Clamp01((Academy.Instance.TotalStepCount * 5 + startingStepOffset)/ 5e6f);
+            curriculumProgress = 1.0f;
             if (chassis != null)
             {
                 chassis.SetNeutral();
@@ -115,7 +115,7 @@ public class CarAgent : Agent
         if (trainingMode && collision.gameObject.CompareTag("object")) 
         {
             m_IsColliding = true;
-            AddReward(-0.5f); // Initial bump penalty; episode does not terminate
+            AddReward(-1.0f); // Initial bump penalty; episode does not terminate
         }       
     }
 
@@ -133,7 +133,6 @@ public class CarAgent : Agent
         if (trainingMode && collision.gameObject.CompareTag("object"))
         {
             m_IsColliding = false;
-            m_StuckTimer = 0f;
         }
     }
 
@@ -146,6 +145,14 @@ public class CarAgent : Agent
 
         // Rewards
         float currentDistance = Vector3.Distance(transform.position, Target.position);
+
+        // kill switch if physics glitch out
+        if (transform.position.y < -2f || transform.position.y > 10f || currentDistance > 60f) 
+        {
+            SetReward(-5.0f);
+            EndEpisode();
+            return;
+        }
 
         if (chassis != null)
         {
@@ -177,7 +184,7 @@ public class CarAgent : Agent
         }
         else
         {
-            m_StuckTimer = 0f;
+            m_StuckTimer = Mathf.Max(0f, m_StuckTimer - Time.fixedDeltaTime * 0.2f);
         }
         // ############################
 
@@ -197,6 +204,7 @@ public class CarAgent : Agent
         else 
         {
             float distanceMoved = previousDistance - currentDistance;
+            distanceMoved = Mathf.Clamp(distanceMoved, -10.0f, 10.0f);
             // suppress distance penalty while colliding so reversing away isn't punished.
             if (!m_IsColliding)
             {
