@@ -104,12 +104,12 @@ if os.path.exists(CHECKPOINT_FILE):
     for param_group in optimizer.param_groups:
             param_group['lr'] = LEARNING_RATE
     
-    # if 'tracker_history' in checkpoint:
-    #     tracker.history_steps = checkpoint['tracker_history']['steps']
-    #     tracker.history_mean_rewards = checkpoint['tracker_history']['means']
-    #     tracker.history_std_rewards = checkpoint['tracker_history']['stds']
-    #     if len(tracker.history_steps) > 0:
-    #         start_steps = tracker.history_steps[-1]
+    if 'tracker_history' in checkpoint:
+        tracker.history_steps = checkpoint['tracker_history']['steps']
+        tracker.history_mean_rewards = checkpoint['tracker_history']['means']
+        tracker.history_std_rewards = checkpoint['tracker_history']['stds']
+        if len(tracker.history_steps) > 0:
+            start_steps = tracker.history_steps[-1]
             
     print(f"Resuming training from step {start_steps}!")
 else:
