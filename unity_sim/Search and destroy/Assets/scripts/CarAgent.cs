@@ -147,6 +147,14 @@ public class CarAgent : Agent
         // Rewards
         float currentDistance = Vector3.Distance(transform.position, Target.position);
 
+        // kill switch if physics glitch out
+        if (transform.position.y < -2f || transform.position.y > 10f || currentDistance > 60f) 
+        {
+            SetReward(-5.0f);
+            EndEpisode();
+            return;
+        }
+
         if (chassis != null)
         {
             chassis.SetSpeed(aiMotor);
