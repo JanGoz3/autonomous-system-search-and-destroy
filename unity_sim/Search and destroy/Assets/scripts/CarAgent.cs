@@ -47,8 +47,8 @@ public class CarAgent : Agent
         m_IsColliding = false;
         
         if (trainingMode) {
-            curriculumProgress = Mathf.Clamp01((Academy.Instance.TotalStepCount + startingStepOffset)/ 1e6f);
-            //curriculumProgress = 1.0f;
+            //curriculumProgress = Mathf.Clamp01((Academy.Instance.TotalStepCount * 5 + startingStepOffset)/ 5e6f);
+            curriculumProgress = 1.0f;
             if (chassis != null)
             {
                 chassis.SetNeutral();
@@ -115,7 +115,7 @@ public class CarAgent : Agent
         if (trainingMode && collision.gameObject.CompareTag("object")) 
         {
             m_IsColliding = true;
-            AddReward(-0.5f); // Initial bump penalty; episode does not terminate
+            AddReward(-1.0f); // Initial bump penalty; episode does not terminate
         }       
     }
 
@@ -133,7 +133,6 @@ public class CarAgent : Agent
         if (trainingMode && collision.gameObject.CompareTag("object"))
         {
             m_IsColliding = false;
-            m_StuckTimer = 0f;
         }
     }
 
@@ -185,7 +184,7 @@ public class CarAgent : Agent
         }
         else
         {
-            m_StuckTimer = 0f;
+            m_StuckTimer = Mathf.Max(0f, m_StuckTimer - Time.fixedDeltaTime * 0.2f);
         }
         // ############################
 
