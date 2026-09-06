@@ -205,6 +205,7 @@ public class CarAgent : Agent
         else 
         {
             float distanceMoved = previousDistance - currentDistance;
+            distanceMoved = Mathf.Clamp(distanceMoved, -10.0f, 10.0f);
             // suppress distance penalty while colliding so reversing away isn't punished.
             if (!m_IsColliding)
             {
