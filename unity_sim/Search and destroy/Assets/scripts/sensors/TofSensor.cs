@@ -3,8 +3,8 @@ using UnityEngine;
 public class TofSensor : MonoBehaviour
 {
     [Header("Pololu VL53L1X params")]
-    public ushort maxDistance = 4000;
-    public float noiseStdDev = 5f;
+    public ushort maxDistance = 3000;
+    public float noiseStdDev = 35f;
 
     [Header("Timing")]
     public float timingBudget = 0.05f; 

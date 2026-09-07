@@ -63,7 +63,7 @@ public class Chassis : MonoBehaviour
 
         float maxAccel = 16f;
         float maxGyro = 2000f;
-        float maxTof = 4000f;
+        float maxTof = 3000f;
 
         // if (yoloData != null && yoloData.Length > 0) {
         //     Debug.Log("Yolo data: " + string.Join(", ", yoloData));
@@ -86,6 +86,23 @@ public class Chassis : MonoBehaviour
         m_Telemetry[9] = Mathf.Clamp(gyro.z / maxGyro, -1f, 1f);
         
         m_Telemetry[10] = Mathf.Clamp(tofSensor.GetDistance() / maxTof, 0f, 1f);
+
+        // m_Telemetry[0] = motor.GetCurrentSetSpeed();
+        // m_Telemetry[1] = steering.GetCurrentSetSwing();
+        // m_Telemetry[2] = cameraState.pitch;
+        // m_Telemetry[3] = cameraState.yaw;
+        
+        // m_Telemetry[4] = accel.x;
+        // m_Telemetry[5] = accel.y;
+        // m_Telemetry[6] = accel.z;
+        
+        // m_Telemetry[7] = gyro.x;
+        // m_Telemetry[8] = gyro.y;
+        // m_Telemetry[9] = gyro.z;
+        
+        // m_Telemetry[10] = tofSensor.GetDistance();
+
+
 
         //yolo state
         if (yoloVision != null)

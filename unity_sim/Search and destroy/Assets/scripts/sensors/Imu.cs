@@ -6,9 +6,11 @@ public class Imu : MonoBehaviour
     public Rigidbody carRigidbody;
 
     [Header("MPU9255 params")]
-    public float accelNoiseStdDev = 0.01f; 
-    public float gyroNoiseStdDev = 0.08f;   
-    public Vector3 gyroBias = new Vector3(0.70f, 0.82f, 1.50f);
+    public float accelNoiseStdDev = 0.005f; 
+    public float accelSpeedNoiseMultiplier = 0.15f;
+    public float gyroNoiseStdDev = 0.15f;   
+    public Vector3 gyroBias = new Vector3(0.79f, 0.73f, 1.46f);
+    public Vector3 accelBias = new Vector3(0f, 0f, 0.04f);
 
     [Header("Timing")]
     public float timingBudget = 0.025f;
@@ -69,12 +71,15 @@ public class Imu : MonoBehaviour
 
         float imuGyroX = -localGyro.x;
         float imuGyroY = -localGyro.z;
-        float imuGyroZ = localGyro.y;
+        float imuGyroZ = -localGyro.y;
+
+        float currentSpeed = currentVelocity.magnitude;
+        float dynamicAccelNoise = accelNoiseStdDev + (currentSpeed * accelSpeedNoiseMultiplier);
 
         cachedAccelerometer = new Vector3(
-            (imuAccX / 9.81f) + NoiseGenerator.GenerateGaussian(0, accelNoiseStdDev),
-            (imuAccY / 9.81f) + NoiseGenerator.GenerateGaussian(0, accelNoiseStdDev),
-            (imuAccZ / 9.81f) + NoiseGenerator.GenerateGaussian(0, accelNoiseStdDev)
+            (imuAccX / 9.81f) + accelBias.x + NoiseGenerator.GenerateGaussian(0, dynamicAccelNoise),
+            (imuAccY / 9.81f) + accelBias.y + NoiseGenerator.GenerateGaussian(0, dynamicAccelNoise),
+            (imuAccZ / 9.81f) + accelBias.z + NoiseGenerator.GenerateGaussian(0, dynamicAccelNoise)
         );
 
         cachedGyroscope = new Vector3(
