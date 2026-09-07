@@ -368,9 +368,10 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Imu
   carRigidbody: {fileID: 1217116758590559756}
-  accelNoiseStdDev: 0.01
-  gyroNoiseStdDev: 0.08
-  gyroBias: {x: 0.7, y: 0.82, z: 1.5}
+  accelNoiseStdDev: 0.005
+  gyroNoiseStdDev: 0.15
+  gyroBias: {x: 0.79, y: 0.73, z: 1.46}
+  accelBias: {x: 0, y: 0, z: 0.04}
   timingBudget: 0.025
   cachedAccelerometer: {x: 0, y: 0, z: 0}
   cachedGyroscope: {x: 0, y: 0, z: 0}
@@ -895,15 +896,17 @@ MonoBehaviour:
   agentParameters:
     maxStep: 0
   hasUpgradedFromAgentParameters: 1
-  MaxStep: 5000
+  MaxStep: 0
   chassis: {fileID: -2845163636235054939}
   Target: {fileID: 0}
   spawner: {fileID: 7803501602790189171}
-  steeringSensitivity: 3
+  maxStuckDuration: 2.5
+  steeringSensitivity: 20
   speedSensitivity: 0.25
-  turretSensitivity: 4
+  turretSensitivity: 20
   hadCollisionThisStep: 0
-  trainingMode: 1
+  trainingMode: 0
+  startingStepOffset: 0
 --- !u!114 &8360594413510804119
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1736,8 +1739,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 4c53fbac88f8e3747acd8f0be3ccc8dd, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ToFSensor
-  maxDistance: 4000
-  noiseStdDev: 5
+  maxDistance: 3000
+  noiseStdDev: 35
   timingBudget: 0.05
   detectionLayers:
     serializedVersion: 2

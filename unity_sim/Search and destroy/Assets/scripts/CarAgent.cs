@@ -29,13 +29,9 @@ public class CarAgent : Agent
     [HideInInspector]
     public bool hadCollisionThisStep = false;
 
-    private float m_currentSteering = 0f;
-    private float m_currentSpeed = 0f;
-    private float m_currentPitch = 0f;
-    private float m_currentYaw = 0f;
     private float previousDistance = 0f;
     private float curriculumProgress = 0f;
-    private float spawnRadius = 3f;
+    private float spawnRadius = 2f;
     private float maxSpawnAngle = 45;
 
     [Header("Training mode")]
@@ -47,8 +43,8 @@ public class CarAgent : Agent
         m_IsColliding = false;
         
         if (trainingMode) {
-            //curriculumProgress = Mathf.Clamp01((Academy.Instance.TotalStepCount * 5 + startingStepOffset)/ 5e6f);
-            curriculumProgress = 1.0f;
+            curriculumProgress = Mathf.Clamp01((Academy.Instance.TotalStepCount * 5 + startingStepOffset)/ 5e6f);
+            //curriculumProgress = 1.0f;
             if (chassis != null)
             {
                 chassis.SetNeutral();
@@ -177,7 +173,7 @@ public class CarAgent : Agent
             // car is stuck for too long
             if (m_StuckTimer >= maxStuckDuration)
             {
-                SetReward(-5.0f);
+                SetReward(-10.0f);
                 EndEpisode();
                 return;
             }
@@ -243,14 +239,10 @@ public class CarAgent : Agent
         if (keyboard.dKey.isPressed) targetYaw = 1f;
         if (keyboard.aKey.isPressed) targetYaw = -1f;
 
-        m_currentSpeed = Mathf.MoveTowards(m_currentSpeed, targetSpeed, speedSensitivity * Time.deltaTime);
-        m_currentSteering = Mathf.MoveTowards(m_currentSteering, targetSteering, steeringSensitivity * Time.deltaTime);
-        m_currentPitch = Mathf.MoveTowards(m_currentPitch, targetPitch, turretSensitivity * Time.deltaTime);
-        m_currentYaw = Mathf.MoveTowards(m_currentYaw, targetYaw, turretSensitivity * Time.deltaTime);
-
-        continuousActionsOut[0] = m_currentSpeed;
-        continuousActionsOut[1] = m_currentSteering;
-        continuousActionsOut[2] = m_currentPitch;
-        continuousActionsOut[3] = m_currentYaw;
+        // Directly assign the raw inputs to the action buffers
+        continuousActionsOut[0] = targetSpeed;
+        continuousActionsOut[1] = targetSteering;
+        continuousActionsOut[2] = targetPitch;
+        continuousActionsOut[3] = targetYaw;
     }
 }
