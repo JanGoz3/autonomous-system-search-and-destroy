@@ -81,8 +81,7 @@ MINIBATCH_SIZE = 1024
 CLIP_COEF = 0.2
 ENT_COEF = 0.01
 VF_COEF = 0.5
-CHECKPOINT_FILE = "unity_sim/driver_training/driver_checkpoint.pth"
-BEST_CHECKPOINT_FILE = "unity_sim/driver_training/best_driver_checkpoint.pth"
+CHECKPOINT_FILE = "unity_sim/driver_training/driver_V5_checkpoint.pth"
 
 engine_channel = EngineConfigurationChannel()
 engine_channel.set_configuration_parameters(time_scale=5.0)
@@ -331,7 +330,7 @@ try:
                 formatted_reward = f"{mean_rew:.2f}".replace('.', '_')
                 
                 # Construct the dynamic file name
-                dynamic_best_file = f"unity_sim/driver_training/driver_checkpoint_{formatted_reward}.pth"
+                dynamic_best_file = f"unity_sim/driver_training/{CHECKPOINT_FILE}_{formatted_reward}.pth"
                 
                 torch.save(save_data, dynamic_best_file)
                 print(f"*** NEW ALL-TIME BEST MODEL. Saved to {dynamic_best_file} (Reward: {mean_rew:.2f}) ***")
