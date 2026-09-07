@@ -2,8 +2,6 @@
 #include <Servo.h>
 #include <Arduino.h>
 #include <chassis_defines.h>
-// #include <math.h>
-
 
 // TODO: 
 // 1. Test braking (how to brake without going into reverse)
@@ -13,12 +11,10 @@
 class Motor
 {
 private:
-
     // Traxxas XL5 ESC requires signals to be in 1ms (min) to 2ms (max), where 1,5ms is zero
     int m_minimumPWMSignalLengthInMicroseconds = chassis_defines::TRAXXAX_PWM_MICROSECONDS_MIN;
     int m_maximumPWMSignalLengtoInMicroseconds = chassis_defines::TRAXXAS_PWM_MICROSECONDS_MAX;
     int m_zeroPWMSignalInMicroseconds = chassis_defines::TRAXXAS_PWM_MICROSECONDS_ZERO;
-
     
     uint8_t m_PWMControlPin = -1;
     Servo m_motorPWM;
@@ -28,57 +24,58 @@ private:
 
     float m_currentSetSpeed = 0.0f;
 
+    const float m_physicalMinForward = 0.19f;
+    const float m_physicalMaxForward = 0.30f;
+    const float m_physicalMinReverse = 0.22f;
+    const float m_physicalMaxReverse = 0.30f;
+
     void attachServo()
     {
         m_motorPWM.attach(m_PWMControlPin, m_minimumPWMSignalLengthInMicroseconds, m_maximumPWMSignalLengtoInMicroseconds);
         m_motorPWM.writeMicroseconds(m_zeroPWMSignalInMicroseconds);
     }
 
-    // converts from -1 to 1 range into 0-180 range
-    int convertSpeedToDegrees(float speed)
-    {
-        // OldRange = (OldMax - OldMin)  
-        // NewRange = (NewMax - NewMin)  
-        // NewValue = (((OldValue - OldMin) * NewRange) / OldRange) + NewMin
-
-        int deg = int(((speed - (-1.0f)) * (180 - 0)) / (1.0f - (-1.0f)));
-        return deg;
-    }
-
-
 public:
-
     Motor()
     {
-
     }
 
-    Motor(uint8_t pin, float speedConstraintForward = 1.0f, float SpeedConstraintReverse=-1.0f)
+    Motor(uint8_t pin, float speedConstraintForward = 1.0f, float speedConstraintReverse = -1.0f)
     {
-        Initialize(pin, speedConstraintForward, SpeedConstraintReverse);
+        Initialize(pin, speedConstraintForward, speedConstraintReverse);
     }
 
-    void Initialize(uint8_t pin, float speedConstraintForward = 1.0f, float SpeedConstraintReverse=-1.0f)
+    void Initialize(uint8_t pin, float speedConstraintForward = 1.0f, float speedConstraintReverse = -1.0f)
     {
         m_PWMControlPin = pin;
         m_speedConstraintForward = speedConstraintForward;
-        m_speedConstraintReverse = SpeedConstraintReverse;
+        m_speedConstraintReverse = speedConstraintReverse;
         attachServo();
         m_isInitialized = true;
-
     }
 
     void SetSpeed(float speed)
     {
         if (m_isInitialized)
         {
-            // float speedConstrained = (speed < m_speedConstraintReverse) ? m_speedConstraintReverse : ((speed > m_speedConstraintForward) ? m_speedConstraintForward : speed);
             float speedConstrained = constrain(speed, m_speedConstraintReverse, m_speedConstraintForward);
+            int pwmSignal = m_zeroPWMSignalInMicroseconds;
 
-            m_motorPWM.write(convertSpeedToDegrees(speedConstrained));
+            if (speedConstrained > 0.0f)
+            {
+                float physicalSpeed = m_physicalMinForward + (speedConstrained * (m_physicalMaxForward - m_physicalMinForward));
+                pwmSignal = m_zeroPWMSignalInMicroseconds + (int)(physicalSpeed * (m_maximumPWMSignalLengtoInMicroseconds - m_zeroPWMSignalInMicroseconds));
+            }
+            else if (speedConstrained < 0.0f)
+            {
+                float absSpeed = -speedConstrained;
+                float physicalSpeed = m_physicalMinReverse + (absSpeed * (m_physicalMaxReverse - m_physicalMinReverse));
+                pwmSignal = m_zeroPWMSignalInMicroseconds - (int)(physicalSpeed * (m_zeroPWMSignalInMicroseconds - m_minimumPWMSignalLengthInMicroseconds));
+            }
+
+            m_motorPWM.writeMicroseconds(pwmSignal);
             m_currentSetSpeed = speedConstrained;
         }
-
     }
 
     void SetSpeed(int speed)
@@ -105,13 +102,10 @@ public:
     // void Brake()
     // {   
 
-
     // }
 
     float GetCurrentSetSpeed()
     {
         return m_currentSetSpeed;
     }
-
-
 };
