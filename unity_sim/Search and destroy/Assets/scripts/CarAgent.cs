@@ -31,7 +31,7 @@ public class CarAgent : Agent
 
     private float previousDistance = 0f;
     private float curriculumProgress = 0f;
-    private float spawnRadius = 3f;
+    private float spawnRadius = 2f;
     private float maxSpawnAngle = 45;
 
     [Header("Training mode")]

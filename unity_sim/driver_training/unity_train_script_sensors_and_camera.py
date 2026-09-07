@@ -81,7 +81,7 @@ MINIBATCH_SIZE = 1024
 CLIP_COEF = 0.2
 ENT_COEF = 0.01
 VF_COEF = 0.5
-CHECKPOINT_FILE = "unity_sim/driver_training/driver_V5_checkpoint.pth"
+CHECKPOINT_FILE = "driver_V5_checkpoint.pth"
 
 engine_channel = EngineConfigurationChannel()
 engine_channel.set_configuration_parameters(time_scale=5.0)
@@ -94,9 +94,9 @@ tracker = TrainingTracker(window_size=100)
 # LOAD CHECKPOINT (IF IT EXISTS)
 # ==========================================
 start_steps = 0
-if os.path.exists(CHECKPOINT_FILE):
+if os.path.exists(f'unity_sim/driver_training/{CHECKPOINT_FILE}'):
     print(f"Loading checkpoint from {CHECKPOINT_FILE}...")
-    checkpoint = torch.load(CHECKPOINT_FILE, map_location=device, weights_only=False)
+    checkpoint = torch.load(f'unity_sim/driver_training/{CHECKPOINT_FILE}', map_location=device, weights_only=False)
     model.load_state_dict(checkpoint['model_state_dict'])
     optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
 
@@ -319,8 +319,8 @@ try:
                 }
             }
             # 1. Always save the standard rolling checkpoint to resume from
-            torch.save(save_data, CHECKPOINT_FILE)
-            print(f"Checkpoint successfully saved to {CHECKPOINT_FILE}")
+            torch.save(save_data, f'unity_sim/driver_training/{CHECKPOINT_FILE}')
+            print(f"Checkpoint successfully saved to unity_sim/driver_training/{CHECKPOINT_FILE}")
 
             # 2. Save a dedicated copy with the dynamic reward name if we beat our personal best
             if mean_rew > best_mean_reward:
@@ -330,7 +330,7 @@ try:
                 formatted_reward = f"{mean_rew:.2f}".replace('.', '_')
                 
                 # Construct the dynamic file name
-                dynamic_best_file = f"unity_sim/driver_training/{CHECKPOINT_FILE}_{formatted_reward}.pth"
+                dynamic_best_file = f"unity_sim/driver_training/{formatted_reward}_{CHECKPOINT_FILE}"
                 
                 torch.save(save_data, dynamic_best_file)
                 print(f"*** NEW ALL-TIME BEST MODEL. Saved to {dynamic_best_file} (Reward: {mean_rew:.2f}) ***")

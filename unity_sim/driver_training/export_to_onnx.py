@@ -1,7 +1,7 @@
 import torch
 from models.driverModel.driver_network import DriverNet
 
-CHECKPOINT_FILE = "unity_sim/driver_training/driver_checkpoint_v4_20_64.pth"
+CHECKPOINT_FILE = "unity_sim/driver_training/driver_V5_checkpoint_21_27.pth"
 STACKED_VECTORS = 3
 STATE_SPACE = 40
 ACTION_SPACE = 4
@@ -12,7 +12,7 @@ model.load_state_dict(checkpoint['model_state_dict'])
     
 model.eval()
 dummy_input = torch.randn(1, STATE_SPACE * STACKED_VECTORS)
-onnx_filename = "driver_checkpoint_v4_20_64.onnx"
+onnx_filename = "driver_V5_21_27.onnx"
 
 # 2. Export natively via PyTorch
 torch.onnx.export(
