@@ -243,14 +243,10 @@ public class CarAgent : Agent
         if (keyboard.dKey.isPressed) targetYaw = 1f;
         if (keyboard.aKey.isPressed) targetYaw = -1f;
 
-        m_currentSpeed = Mathf.MoveTowards(m_currentSpeed, targetSpeed, speedSensitivity * Time.deltaTime);
-        m_currentSteering = Mathf.MoveTowards(m_currentSteering, targetSteering, steeringSensitivity * Time.deltaTime);
-        m_currentPitch = Mathf.MoveTowards(m_currentPitch, targetPitch, turretSensitivity * Time.deltaTime);
-        m_currentYaw = Mathf.MoveTowards(m_currentYaw, targetYaw, turretSensitivity * Time.deltaTime);
-
-        continuousActionsOut[0] = m_currentSpeed;
-        continuousActionsOut[1] = m_currentSteering;
-        continuousActionsOut[2] = m_currentPitch;
-        continuousActionsOut[3] = m_currentYaw;
+        // Directly assign the raw inputs to the action buffers
+        continuousActionsOut[0] = targetSpeed;
+        continuousActionsOut[1] = targetSteering;
+        continuousActionsOut[2] = targetPitch;
+        continuousActionsOut[3] = targetYaw;
     }
 }
