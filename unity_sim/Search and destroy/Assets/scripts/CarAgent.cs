@@ -29,10 +29,6 @@ public class CarAgent : Agent
     [HideInInspector]
     public bool hadCollisionThisStep = false;
 
-    private float m_currentSteering = 0f;
-    private float m_currentSpeed = 0f;
-    private float m_currentPitch = 0f;
-    private float m_currentYaw = 0f;
     private float previousDistance = 0f;
     private float curriculumProgress = 0f;
     private float spawnRadius = 3f;
@@ -47,8 +43,8 @@ public class CarAgent : Agent
         m_IsColliding = false;
         
         if (trainingMode) {
-            //curriculumProgress = Mathf.Clamp01((Academy.Instance.TotalStepCount * 5 + startingStepOffset)/ 5e6f);
-            curriculumProgress = 1.0f;
+            curriculumProgress = Mathf.Clamp01((Academy.Instance.TotalStepCount * 5 + startingStepOffset)/ 5e6f);
+            //curriculumProgress = 1.0f;
             if (chassis != null)
             {
                 chassis.SetNeutral();
@@ -177,7 +173,7 @@ public class CarAgent : Agent
             // car is stuck for too long
             if (m_StuckTimer >= maxStuckDuration)
             {
-                SetReward(-5.0f);
+                SetReward(-10.0f);
                 EndEpisode();
                 return;
             }
