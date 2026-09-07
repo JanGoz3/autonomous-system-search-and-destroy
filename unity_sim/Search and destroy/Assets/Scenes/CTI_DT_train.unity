@@ -1512,12 +1512,15 @@ MonoBehaviour:
   actionDim: 2
   maxEpLen: 61
   zeroActionsInContext: 1
+  useTrainingStylePadding: 0
   includePosition: 1
   includeScan: 1
   includeScanPitch: 1
   excludePolicyOutputs: 1
   scanPitchScaleDeg: 45
   initialTargetReturn: 19
+  decayReturnToGo: 0
+  pseudoEpisodeDecisions: 0
   gridCellSize: 1
   coverageReward: 1
   stepPenalty: -0.01
@@ -1529,7 +1532,9 @@ MonoBehaviour:
   logDecisions: 1
   decisionLogFolder: DTDecisionLog
   decisionLogTag: 
+  flushEveryDecisions: 25
   lastLocalAction: {x: 0, y: 0}
+  lastDecisionAngleDeg: 0
   waypointsOffNavMesh: 0
   isActive: 0
   currentReturnToGo: 0
@@ -2116,7 +2121,7 @@ PrefabInstance:
     - target: {fileID: 8360594413510804119, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
       propertyPath: m_Model
       value: 
-      objectReference: {fileID: 5022602860645237092, guid: 247eda77c3857264a93e8ee4b3825f2c, type: 3}
+      objectReference: {fileID: 5022602860645237092, guid: 9f5d0bcaca4ff1a448ec6e5ca9577172, type: 3}
     - target: {fileID: 8360594413510804119, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
       propertyPath: m_BrainParameters.VectorObservationSize
       value: 40
@@ -2751,20 +2756,26 @@ MonoBehaviour:
   carAgent: {fileID: 663955674}
   dtInference: {fileID: 663955669}
   autoExplorer: {fileID: 663955670}
+  tofScanBuffer: {fileID: 663955684}
   runSeconds: 120
   runsPerPolicy: 5
   seed: 12345
   timeScale: 1
+  warmupSeconds: 1.5
   forceFairExpert: 1
   warnOutsideTrainingArea: 1
   trainAreaMin: {x: -2.5, y: 7.2}
   trainAreaMax: {x: 15.4, y: 27.4}
   gridCellSize: 1
   sampleInterval: 5
+  stallThreshold: 0.1
   randomWaypointDistance: 1.5
   decisionInterval: 1.5
-  policiesToRun: 
-  sweepDecisionIntervals: []
+  policiesToRun: 0100000000000000
+  sweepDecisionIntervals:
+  - 0.5
+  - 1
+  - 1.5
   spawnOnRoute: 1
   spawnYawJitter: 90
   spawnLateralOffset: 0.3

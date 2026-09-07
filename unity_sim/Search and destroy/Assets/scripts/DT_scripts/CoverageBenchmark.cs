@@ -7,21 +7,6 @@ using UnityEngine;
 using UnityEngine.AI;
 using UnityEngine.InputSystem;
 
-/// <summary>
-/// Mierzy to, o co w projekcie naprawde chodzi: ile metrow kwadratowych pietra
-/// auto pokrywa w zadanym czasie.
-///
-/// Wzgledem poprzedniej wersji:
-///  - czwarta polityka ExpertFrozen: AutoExplorer przez TEN SAM interfejs co DT
-///    (jeden zamrozony waypoint co decisionInterval). Bez tego porownanie DT vs
-///    AutoExplorer mierzy warstwe aktuacji (co klatka vs co 1.5 s), nie polityke.
-///  - forceFairExpert: wylacza respawnOnStart / respawnWhenStuck na czas
-///    przebiegu. Respawn na starcie ignoruje sparowana pozycje startowa, a
-///    respawn przy zaklinowaniu wlicza teleportacje do pokrycia i do dystansu.
-///  - dump konfiguracji (trainingMode, oba respawny) do logu.
-///  - kontrola, czy pozycje startowe mieszcza sie w obszarze danych treningowych.
-///  - liczniki per polityka w CSV (poza NavMesh, cel za autem, decyzje w bezruchu).
-/// </summary>
 public class CoverageBenchmark : MonoBehaviour
 {
     public enum Policy { DecisionTransformer, ExpertFrozen, RandomWaypoint, AutoExplorer }
@@ -33,20 +18,30 @@ public class CoverageBenchmark : MonoBehaviour
     public CarAgent carAgent;
     public DTInference dtInference;
     public AutoExplorer autoExplorer;
+    [Tooltip("Opcjonalne. Czyszczone po teleportacji, przed okresem rozgrzewki.")]
+    public TofScanBuffer tofScanBuffer;
 
     [Header("Protokol")]
     [Tooltip("Dlugosc jednego przebiegu w sekundach czasu symulacji.")]
-    public float runSeconds = 300f;
-    [Tooltip("Ile przebiegow na polityke. Kazdy numer przebiegu ma ten sam punkt startowy dla wszystkich polityk.")]
+    public float runSeconds = 180f;
+    [Tooltip("Ile przebiegow na polityke. Kazdy numer przebiegu ma ten sam punkt startowy "
+           + "dla wszystkich polityk.")]
     public int runsPerPolicy = 5;
     public int seed = 12345;
-    [Tooltip("Przyspieszenie symulacji. 4x zwykle jest bezpieczne; wyzej fizyka moze sie psuc.")]
-    public float timeScale = 4f;
+    [Tooltip("Przyspieszenie symulacji. Przy przemiataniu interwalu decyzji trzymaj 1-2: "
+           + "przy wyzszych wartosciach dlugosc klatki zaczyna byc porownywalna z interwalem "
+           + "i faktyczny interwal rozjezdza sie z zadanym.")]
+    public float timeScale = 2f;
+    [Tooltip("Ile sekund auto stoi po teleportacji, zanim ruszy polityka. Daje wiezyczce czas "
+           + "na wypelnienie profilu ToF - inaczej pierwsza decyzja zapada na pustym buforze.")]
+    public float warmupSeconds = 1.5f;
 
     [Header("Uczciwosc porownania")]
-    [Tooltip("Na czas przebiegu wylacza AutoExplorer.respawnOnStart i respawnWhenStuck, po czym przywraca poprzednie wartosci. Bez tego ekspert startuje z losowego punktu trasy (nie ze sparowanej pozycji) i teleportuje sie przy zaklinowaniu, co wchodzi i do pokrycia, i do dystansu.")]
+    [Tooltip("Na czas przebiegu wylacza AutoExplorer.respawnOnStart i respawnWhenStuck, "
+           + "po czym przywraca poprzednie wartosci.")]
     public bool forceFairExpert = true;
-    [Tooltip("Ostrzega, gdy wylosowana pozycja startowa lezy poza obszarem, z ktorego pochodza dane treningowe. Model uczyl sie etykiety bedacej praktycznie funkcja (posX, posZ, yaw) - poza tym prostokatem ekstrapoluje.")]
+    [Tooltip("Ostrzega, gdy wylosowana pozycja startowa lezy poza obszarem, z ktorego "
+           + "pochodza dane treningowe.")]
     public bool warnOutsideTrainingArea = true;
     public Vector2 trainAreaMin = new Vector2(-2.5f, 7.2f);
     public Vector2 trainAreaMax = new Vector2(15.4f, 27.4f);
@@ -55,36 +50,42 @@ public class CoverageBenchmark : MonoBehaviour
     public float gridCellSize = 1.0f;
     [Tooltip("Co ile sekund zapisac punkt krzywej pokrycia.")]
     public float sampleInterval = 5f;
+    [Tooltip("Ponizej tego przesuniecia miedzy taktami decyzji auto uznajemy za stojace.")]
+    public float stallThreshold = 0.1f;
 
     [Header("Baseline: losowy waypoint")]
     [Tooltip("Ta sama odleglosc co WAYPOINT_DIST w build_dt_dataset.py.")]
     public float randomWaypointDistance = 1.5f;
-    [Tooltip("Ten sam interwal co decisionInterval w DTInference. Uzywany takze przez ExpertFrozen i RandomWaypoint.")]
+    [Tooltip("Ten sam interwal co decisionInterval w DTInference. Uzywany takze przez "
+           + "ExpertFrozen i RandomWaypoint.")]
     public float decisionInterval = 1.5f;
 
     [Header("Co uruchomic")]
-    [Tooltip("Puste = wszystkie cztery polityki. Wpisz np. tylko ExpertFrozen, zeby zmierzyc sam sufit interfejsu.")]
+    [Tooltip("Puste = wszystkie cztery polityki.")]
     public List<Policy> policiesToRun = new List<Policy>();
-    [Tooltip("Puste = uzyj decisionInterval powyzej. Wpisz kilka wartosci (np. 0.25, 0.5, 1, 1.5), zeby przemiesc interwal decyzji. Kazda wartosc to osobny wiersz w wynikach, opisany jako 'Polityka@interwal'. Nie dotyczy AutoExplorera, ktory z definicji przelicza cel co klatke.")]
+    [Tooltip("Puste = uzyj decisionInterval powyzej. Wpisz kilka wartosci (np. 0.5, 1, 1.5), "
+           + "zeby przemiesc interwal decyzji. Nie dotyczy AutoExplorera, ktory z definicji "
+           + "przelicza cel co klatke.")]
     public List<float> sweepDecisionIntervals = new List<float>();
 
     [Header("Spawn")]
-    [Tooltip("Losuje pozycje startowe WZDLUZ TRASY zamiast w prostokacie areny. Trasa jest z definicji przejezdna, a NavMesh.SamplePosition przyjmuje punkty przy scianach i w narozdnikach - poprawne dla agenta o promieniu, ale nie dla pojazdu o promieniu skretu. Wymaga podpietego AutoExplorer z referencja do CoverageRoute.")]
+    [Tooltip("Losuje pozycje startowe WZDLUZ TRASY zamiast w prostokacie areny.")]
     public bool spawnOnRoute = true;
-    [Tooltip("Losowe odchylenie orientacji od kierunku trasy, w stopniach (+/-). Zero testowaloby wylacznie najlatwiejszy przypadek; odchylenie jest tym, czego model i tak musi sie nauczyc.")]
+    [Tooltip("Losowe odchylenie orientacji od kierunku trasy, w stopniach (+/-).")]
     public float spawnYawJitter = 90f;
-    [Tooltip("Losowe przesuniecie prostopadle do trasy, w metrach (+/-). Zapobiega temu, zeby wszystkie starty lezaly dokladnie na polilinii.")]
+    [Tooltip("Losowe przesuniecie prostopadle do trasy, w metrach (+/-).")]
     public float spawnLateralOffset = 0.3f;
     public float spawnHeightOffset = 0.2f;
-    [Tooltip("Odrzuca pozycje, w ktorych auto ma blizej niz tyle metrow do przeszkody w ktoryms z czterech kierunkow. 0 = bez sprawdzania.")]
+    [Tooltip("Odrzuca pozycje, w ktorych auto ma blizej niz tyle metrow do przeszkody "
+           + "w ktoryms z czterech kierunkow. 0 = bez sprawdzania.")]
     public float minClearance = 0.5f;
 
-    [Tooltip("Uzywane TYLKO gdy spawnOnRoute = false. Domyslne +/-20 m to obszar znacznie wiekszy niz pietro.")]
+    [Tooltip("Uzywane TYLKO gdy spawnOnRoute = false.")]
     public Vector2 arenaMin = new Vector2(-20f, -20f);
     public Vector2 arenaMax = new Vector2(20f, 20f);
 
     [Header("Kolizje (opcjonalne)")]
-    [Tooltip("Wymaga pola 'public int collisionCount' w CarAgent.cs. hadCollisionThisStep sie NIE nadaje - nigdzie nie jest ustawiane na true, a dodatkowo DTInference i DTDataLogger je konsumuja.")]
+    [Tooltip("Wymaga pola 'public int collisionCount' w CarAgent.cs.")]
     public bool countCollisions = false;
 
     [Header("Wyjscie")]
@@ -110,12 +111,12 @@ public class CoverageBenchmark : MonoBehaviour
         csv.Clear();
         summary.Clear();
         csv.AppendLine("policy,run,t,cells,area_m2,distance_m,collisions");
-        summary.AppendLine("policy,run,cells,area_m2,distance_m,decisions," +
-                           "off_navmesh,behind,stalled,stuck_events,laps,start_x,start_z,start_in_train_area");
+        summary.AppendLine("policy,run,interval,cells,area_m2,distance_m,ticks," +
+                           "behind_pct,stalled_pct,mean_abs_angle,dt_decisions,dt_off_navmesh," +
+                           "dt_behind,dt_stalled,stuck_events,laps,start_x,start_z,start_in_train_area");
 
         DumpConfig();
 
-        // Pozycje startowe losowane RAZ i uzywane przez WSZYSTKIE polityki.
         var rng = new System.Random(seed);
         var starts = BuildStarts(rng);
         if (starts.Count < runsPerPolicy)
@@ -138,11 +139,10 @@ public class CoverageBenchmark : MonoBehaviour
         if (warnOutsideTrainingArea && outside > 0)
             Debug.LogWarning($"[Benchmark] {outside}/{starts.Count} pozycji startowych lezy poza " +
                              $"X[{trainAreaMin.x};{trainAreaMax.x}] Z[{trainAreaMin.y};{trainAreaMax.y}]. " +
-                             $"Etykieta DT jest praktycznie funkcja (posX, posZ, yaw) - tam model ekstrapoluje. " +
-                             $"Rozwaz zawezenie arenaMin/arenaMax do obszaru trasy.");
+                             $"Tam model ekstrapoluje.");
 
-        // zapamietujemy i wylaczamy respawny eksperta
         bool prevRespawnStart = false, prevRespawnStuck = false, prevDrive = true;
+        float prevDtInterval = decisionInterval;
         if (autoExplorer != null)
         {
             prevRespawnStart = autoExplorer.respawnOnStart;
@@ -152,14 +152,13 @@ public class CoverageBenchmark : MonoBehaviour
             {
                 autoExplorer.respawnOnStart = false;
                 autoExplorer.respawnWhenStuck = false;
-                Debug.Log("[Benchmark] forceFairExpert: respawnOnStart i respawnWhenStuck " +
-                          "wylaczone na czas przebiegu.");
+                Debug.Log("[Benchmark] forceFairExpert: respawnOnStart i respawnWhenStuck wylaczone.");
             }
         }
+        if (dtInference != null) prevDtInterval = dtInference.decisionInterval;
 
         Time.timeScale = timeScale;
 
-        // lista zadan: kazda polityka x kazdy interwal do przemiecenia
         var policies = (policiesToRun != null && policiesToRun.Count > 0)
             ? new List<Policy>(policiesToRun)
             : new List<Policy>((Policy[])System.Enum.GetValues(typeof(Policy)));
@@ -170,7 +169,6 @@ public class CoverageBenchmark : MonoBehaviour
         var jobs = new List<(Policy pol, float iv, string label)>();
         foreach (Policy p in policies)
         {
-            // AutoExplorer przelicza cel co klatke - interwal go nie dotyczy
             if (p == Policy.AutoExplorer || intervals.Count == 1)
                 jobs.Add((p, intervals[0], p.ToString()));
             else
@@ -179,7 +177,8 @@ public class CoverageBenchmark : MonoBehaviour
                         $"{p}@{iv.ToString("0.##", CultureInfo.InvariantCulture)}"));
         }
         Debug.Log($"[Benchmark] Do wykonania: {jobs.Count} x {runsPerPolicy} przebiegow " +
-                  $"({string.Join(", ", jobs.ConvertAll(j => j.label))})");
+                  $"({string.Join(", ", jobs.ConvertAll(j => j.label))}). " +
+                  $"Szacowany czas: {jobs.Count * runsPerPolicy * (runSeconds + warmupSeconds) / Mathf.Max(timeScale, 0.01f) / 60f:F0} min.");
 
         foreach (var job in jobs)
             for (int run = 0; run < runsPerPolicy; run++)
@@ -190,7 +189,7 @@ public class CoverageBenchmark : MonoBehaviour
 
         Time.timeScale = 1f;
 
-        if (dtInference != null) dtInference.decisionInterval = decisionInterval;
+        if (dtInference != null) dtInference.decisionInterval = prevDtInterval;
         if (autoExplorer != null)
         {
             autoExplorer.respawnOnStart = prevRespawnStart;
@@ -211,8 +210,8 @@ public class CoverageBenchmark : MonoBehaviour
         bool useRoute = spawnOnRoute && route != null && route.TotalLength() > 1f;
 
         if (spawnOnRoute && !useRoute)
-            Debug.LogWarning("[Benchmark] spawnOnRoute = true, ale brak trasy " +
-                             "(autoExplorer.route). Wracam do losowania w prostokacie areny.");
+            Debug.LogWarning("[Benchmark] spawnOnRoute = true, ale brak trasy. "
+                           + "Wracam do losowania w prostokacie areny.");
 
         float len = useRoute ? route.TotalLength() : 0f;
         int guard = 0;
@@ -288,17 +287,31 @@ public class CoverageBenchmark : MonoBehaviour
                         $"clearance {minClearance} m)\n"
                       : $"  -> arena X[{arenaMin.x};{arenaMax.x}] Z[{arenaMin.y};{arenaMax.y}]\n") +
                   $"  runSeconds={runSeconds}  runsPerPolicy={runsPerPolicy}  " +
-                  $"decisionInterval={decisionInterval.ToString("0.##", CultureInfo.InvariantCulture)}");
+                  $"warmup={warmupSeconds}s  timeScale={timeScale}");
 
         if (carAgent != null && carAgent.trainingMode)
-            Debug.LogError("[Benchmark] CarAgent.trainingMode = TRUE. Dojechanie do waypointa " +
-                           "wywola EndEpisode(), ktore teleportuje auto i NADPISZE Target.position " +
-                           "wlasnym spawnem. Wyniki beda bezwartosciowe. Odznacz przed pomiarem.");
-        if (dtInference != null && dtInference.initialTargetReturn < 10f)
-            Debug.LogWarning($"[Benchmark] DTInference.initialTargetReturn = " +
-                             $"{dtInference.initialTargetReturn}. Przy etykietach eksperta sumy nagrod " +
-                             $"sa dodatnie (rzedu 33..118), a RTG bliskie zera wystepuje tylko na " +
-                             $"KONCU epizodu - model jest warunkowany na zachowanie terminalne.");
+            Debug.LogError("[Benchmark] CarAgent.trainingMode = TRUE. Dojechanie do waypointa "
+                         + "wywola EndEpisode(), ktore teleportuje auto i NADPISZE Target.position. "
+                         + "Wyniki beda bezwartosciowe. Odznacz przed pomiarem.");
+
+        bool sweeping = sweepDecisionIntervals != null && sweepDecisionIntervals.Count > 1;
+        if (sweeping && timeScale > 2f)
+            Debug.LogWarning($"[Benchmark] timeScale={timeScale} przy przemiataniu interwalu. "
+                           + "Dlugosc klatki w czasie symulacji rosnie proporcjonalnie do timeScale, "
+                           + "wiec faktyczny interwal decyzji kwantuje sie do wielokrotnosci klatki. "
+                           + "Zjedz do 1-2, inaczej mierzysz zaszumiona wersje zmiennej, ktora badasz.");
+
+        if (dtInference != null && sweeping)
+        {
+            float minIv = float.MaxValue;
+            foreach (float iv in sweepDecisionIntervals) minIv = Mathf.Min(minIv, iv);
+            int maxDecisions = Mathf.CeilToInt(runSeconds / Mathf.Max(minIv, 0.01f));
+            if (dtInference.pseudoEpisodeDecisions <= 0 && maxDecisions > dtInference.maxEpLen)
+                Debug.LogWarning($"[Benchmark] Przy interwale {minIv}s przebieg ma ~{maxDecisions} "
+                               + $"decyzji, a maxEpLen={dtInference.maxEpLen}. Timesteps beda "
+                               + "przyciete przez wiekszosc przebiegu. Rozwaz ustawienie "
+                               + "DTInference.pseudoEpisodeDecisions (np. 53).");
+        }
     }
 
     private bool InTrainArea(Vector3 p) =>
@@ -316,7 +329,11 @@ public class CoverageBenchmark : MonoBehaviour
             carRigidbody.angularVelocity = Vector3.zero;
         }
         if (target != null) target.position = start.position;
+
+        if (tofScanBuffer != null) tofScanBuffer.Clear();
         yield return new WaitForFixedUpdate();
+
+        if (warmupSeconds > 0f) yield return new WaitForSeconds(warmupSeconds);
 
         int collisionsAtStart = ReadCollisions();
         var visited = new HashSet<Vector2Int>();
@@ -326,34 +343,42 @@ public class CoverageBenchmark : MonoBehaviour
         switch (policy)
         {
             case Policy.DecisionTransformer:
-                if (dtInference != null)
+                if (dtInference == null)
                 {
-                    dtInference.decisionLogTag = $"{label}_run{run}";
-                    dtInference.decisionInterval = interval;
+                    Debug.LogError("[Benchmark] Brak referencji DTInference - pomijam przebieg.");
+                    yield break;
                 }
-                dtInference.StartInference();
+                dtInference.decisionLogTag = $"{label}_run{run}";
+                dtInference.decisionInterval = interval;
+                dtInference.StartInference(clearScanBuffer: false);   // bufor juz wypelniony
                 break;
 
             case Policy.ExpertFrozen:
-                // ekspert liczy waypoint, ale celem steruje benchmark - raz na decisionInterval
+                if (autoExplorer == null) { Debug.LogError("[Benchmark] Brak AutoExplorer."); yield break; }
                 autoExplorer.driveTarget = false;
                 autoExplorer.StartExploring();
                 break;
 
             case Policy.AutoExplorer:
+                if (autoExplorer == null) { Debug.LogError("[Benchmark] Brak AutoExplorer."); yield break; }
                 autoExplorer.driveTarget = true;
                 autoExplorer.StartExploring();
                 break;
         }
 
-        float t = 0f, nextSample = 0f, nextWaypoint = 0f;
+        int ticks = 0, tickBehind = 0, tickStalled = 0;
+        float absAngleSum = 0f;
+        Vector3 lastTickPos = carTransform.position;
+
+        float t = 0f, nextSample = 0f, nextWaypoint = 0f, nextTick = 0f;
+
         while (t < runSeconds)
         {
             if (policy == Policy.RandomWaypoint && t >= nextWaypoint)
             {
                 nextWaypoint = t + interval;
-                float a = Random.Range(-Mathf.PI, Mathf.PI);            // pelny okrag,
-                float yaw = carTransform.eulerAngles.y * Mathf.Deg2Rad;  // tak jak 36 binow DT
+                float a = Random.Range(-Mathf.PI, Mathf.PI);
+                float yaw = carTransform.eulerAngles.y * Mathf.Deg2Rad;
                 float lx = Mathf.Sin(a) * randomWaypointDistance;
                 float lz = Mathf.Cos(a) * randomWaypointDistance;
                 float c = Mathf.Cos(yaw), s = Mathf.Sin(yaw);
@@ -365,6 +390,31 @@ public class CoverageBenchmark : MonoBehaviour
             {
                 nextWaypoint = t + interval;
                 target.position = autoExplorer.ExpertWorldWaypoint + new Vector3(0, 0.05f, 0);
+            }
+
+            if (t >= nextTick)
+            {
+                nextTick = t + interval;
+                Vector3 pos0 = carTransform.position;
+
+                Vector3 toTarget = target.position - pos0;
+                toTarget.y = 0f;
+                if (toTarget.sqrMagnitude > 1e-6f)
+                {
+                    Vector3 local = Quaternion.Inverse(
+                        Quaternion.Euler(0f, carTransform.eulerAngles.y, 0f)) * toTarget;
+                    float ang = Mathf.Atan2(local.x, local.z) * Mathf.Rad2Deg;
+                    absAngleSum += Mathf.Abs(ang);
+                    if (Mathf.Abs(ang) > 90f) tickBehind++;
+                }
+
+                if (ticks > 0 &&
+                    Vector3.Distance(new Vector3(pos0.x, 0, pos0.z),
+                                     new Vector3(lastTickPos.x, 0, lastTickPos.z)) < stallThreshold)
+                    tickStalled++;
+
+                lastTickPos = pos0;
+                ticks++;
             }
 
             Vector3 pos = carTransform.position;
@@ -388,14 +438,14 @@ public class CoverageBenchmark : MonoBehaviour
             t += Time.deltaTime;
         }
 
-        // liczniki zbierane PRZED StopAll, bo StopInference je wypisuje i zapisuje log
-        int decisions = 0, offMesh = 0, behind = 0, stalled = 0, stuckEv = 0, laps = 0;
+        int dtDecisions = 0, dtOffMesh = 0, dtBehind = 0, dtStalled = 0;
+        int stuckEv = 0, laps = 0;
         if (policy == Policy.DecisionTransformer && dtInference != null)
         {
-            decisions = dtInference.decisionCount;
-            offMesh = dtInference.waypointsOffNavMesh;
-            behind = dtInference.decisionsBehind;
-            stalled = dtInference.decisionsWhileStalled;
+            dtDecisions = dtInference.decisionCount;
+            dtOffMesh = dtInference.waypointsOffNavMesh;
+            dtBehind = dtInference.decisionsBehind;
+            dtStalled = dtInference.decisionsWhileStalled;
         }
         if ((policy == Policy.AutoExplorer || policy == Policy.ExpertFrozen) && autoExplorer != null)
         {
@@ -405,27 +455,33 @@ public class CoverageBenchmark : MonoBehaviour
 
         StopAll();
 
+        float behindPct = ticks > 0 ? 100f * tickBehind / ticks : 0f;
+        float stalledPct = ticks > 1 ? 100f * tickStalled / (ticks - 1) : 0f;
+        float meanAbsAngle = ticks > 0 ? absAngleSum / ticks : 0f;
+
         var inv = CultureInfo.InvariantCulture;
-        summary.AppendLine($"{label},{run},{visited.Count}," +
+        summary.AppendLine($"{label},{run},{interval.ToString("0.##", inv)},{visited.Count}," +
             $"{(visited.Count * gridCellSize * gridCellSize).ToString("F1", inv)}," +
-            $"{distance.ToString("F2", inv)},{decisions},{offMesh},{behind},{stalled}," +
+            $"{distance.ToString("F2", inv)},{ticks}," +
+            $"{behindPct.ToString("F1", inv)},{stalledPct.ToString("F1", inv)}," +
+            $"{meanAbsAngle.ToString("F1", inv)}," +
+            $"{dtDecisions},{dtOffMesh},{dtBehind},{dtStalled}," +
             $"{stuckEv},{laps},{start.position.x.ToString("F2", inv)}," +
             $"{start.position.z.ToString("F2", inv)},{(InTrainArea(start.position) ? 1 : 0)}");
 
-        Debug.Log($"[Benchmark] {label} run {run}: {visited.Count} komorek, {distance:F1} m" +
+        Debug.Log($"[Benchmark] {label} run {run}: {visited.Count} komorek, {distance:F1} m, " +
+                  $"celZaAutem={behindPct:F0}%, bezruch={stalledPct:F0}%, " +
+                  $"sredni|kat|={meanAbsAngle:F0} st" +
                   (policy == Policy.DecisionTransformer
-                      ? $", decyzji={decisions}, pozaNavMesh={offMesh}, " +
-                        $"celZaAutem={behind}, wBezruchu={stalled}"
-                      : "") +
+                      ? $", decyzji={dtDecisions}, pozaNavMesh={dtOffMesh}" : "") +
                   ((policy == Policy.AutoExplorer || policy == Policy.ExpertFrozen)
                       ? $", zaklinowan={stuckEv}, okrazen={laps}" : ""));
     }
 
-    /// <summary>Zwraca 0, gdy zliczanie kolizji jest wylaczone.</summary>
     private int ReadCollisions()
     {
         if (!countCollisions || carAgent == null) return 0;
-        // return carAgent.collisionCount;   // <- odkomentuj po dodaniu pola w CarAgent
+        // return carAgent.collisionCount;   // zeby dzialalo trzeba dodac pole w CarAgent
         return 0;
     }
 
