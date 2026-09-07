@@ -124,7 +124,7 @@ def main():
             norm_telemetry[8] = np.clip(raw_telemetry[8] / 2000.0, -1.0, 1.0)
             norm_telemetry[9] = np.clip(raw_telemetry[9] / 2000.0, -1.0, 1.0)
             
-            norm_telemetry[10] = np.clip(raw_telemetry[10] / 4000.0, 0.0, 1.0)
+            norm_telemetry[10] = np.clip(raw_telemetry[10] / 3000.0, 0.0, 1.0)
 
             norm_target_x = float(current_target_x / MAX_ARENA_SIZE)
             norm_target_z = float(current_target_z / MAX_ARENA_SIZE)
