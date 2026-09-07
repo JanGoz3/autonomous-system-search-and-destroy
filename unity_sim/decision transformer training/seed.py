@@ -1,20 +1,3 @@
-"""
-Ocena DT: sweep po podzialach train/val + diagnostyka copycat.
-
-Polaczenie dawnych seed_sweep.py i test_copycat.py - wspolne sa i tak wszystkie
-funkcje pomocnicze (okna kontekstu, predykcja autoregresywna, blad katowy).
-
-Uzycie:
-    python seed.py              # sweep: trenuje N modeli, raportuje blad autoregresywny
-    python seed.py copycat      # diagnostyka na istniejacym dt_checkpoint.pt
-
-METRYKA: naglowkiem jest blad AUTOREGRESYWNY, nie teacher-forced. Teacher forcing
-potrafi myslic za model: przy relabelingu po dystansie kolejne etykiety sa niemal
-identyczne, wiec skopiowanie a_{t-1} podanego na wejsciu daje swietny wynik, ktory
-w zamknietej petli nie istnieje. Autoregresja podaje modelowi jego WLASNE poprzednie
-wyjscia - to najblizszy Pythonowi odpowiednik petli w DTInference.cs.
-"""
-
 import pickle
 import sys
 
@@ -27,19 +10,16 @@ from models.DecisionTransformer.decision_transformer import DecisionTransformer
 torch.backends.mha.set_fastpath_enabled(False)
 
 CHECKPOINT_FILE = "dt_checkpoint.pt"
-DATASET_FILE = "dt_dataset.pkl"
+DATASET_FILE = None
 
 SEEDS_TO_TEST = [0, 1, 2, 3, 4]
-NUM_TRAIN_ITERS = 1500
+NUM_TRAIN_ITERS = 1000
 EVAL_BATCH = 128
 DEVICE = "cpu"
 
 
-# ===========================================================================
-# Wspolne
-# ===========================================================================
-
-def load_dataset(path=DATASET_FILE):
+def load_dataset(path=None):
+    path = path or train_dt.DATASET_FILE
     with open(path, "rb") as f:
         data = pickle.load(f)
     if isinstance(data, dict):
@@ -76,21 +56,19 @@ def held_out(trajectories, ckpt):
 
 
 def prep(traj, ckpt):
-    """Stan znormalizowany + return-to-go przeskalowany, tak jak w treningu."""
     cfg = ckpt["config"]
     states = traj["states"]
     if cfg.get("use_yaw_sincos"):
-        yaw = np.radians(states[:, 2].astype(np.float64))
-        states = np.column_stack([states[:, 0:2], np.sin(yaw), np.cos(yaw),
-                                  states[:, 3:]]).astype(np.float32)
+        i = int(cfg.get("yaw_index", 2))
+        yaw = np.radians(states[:, i].astype(np.float64))
+        states = np.column_stack([states[:, :i], np.sin(yaw), np.cos(yaw),
+                                  states[:, i + 1:]]).astype(np.float32)
     s_norm = ((states - ckpt["state_mean"]) / ckpt["state_std"]).astype(np.float32)
     rtg = (traj["returns_to_go"].reshape(-1, 1) / cfg["return_scale"]).astype(np.float32)
     return s_norm, rtg
 
 
 def build_windows(s_norm, actions, rtg, K, max_ep_len):
-    """Okno K DOKLADNIE takie jak w treningu. Podanie modelowi calej trajektorii
-    naraz mierzyloby go w rezimie, ktorego nigdy nie widzial."""
     T, sd, ad = len(s_norm), s_norm.shape[1], actions.shape[1]
     S = np.zeros((T, K, sd), np.float32)
     A = np.zeros((T, K, ad), np.float32)
@@ -121,7 +99,6 @@ def predict_batched(model, S, A, R, TS, M):
 
 
 def predict_autoregressive(model, s_norm, rtg, ckpt, act_dim):
-    """Kontekst z WLASNYCH predykcji modelu, stany prawdziwe."""
     cfg = ckpt["config"]
     K, max_ep_len = cfg["context_length"], cfg["max_ep_len"]
     T = len(s_norm)
@@ -158,9 +135,19 @@ def valid_of(traj):
     return traj["valid"] if "valid" in traj else np.ones(len(traj["actions"]), bool)
 
 
-# ===========================================================================
-# Sweep
-# ===========================================================================
+def describe_variant(cfg):
+    cols = cfg.get("state_columns")
+    if not cols:
+        return f"state_dim={cfg['state_dim']}"
+    has_pos = "posX" in cols
+    n_scan = sum(1 for c in cols if c.startswith("scan_dist_"))
+    leak = [c for c in ("telem_0", "telem_1", "telem_2", "telem_3") if c in cols]
+    ceiling = "2.2 st (pozycja+yaw)" if has_pos else "7.5 st (eksterocepcja)"
+    return (f"state_dim={cfg['state_dim']}, yaw_index={cfg.get('yaw_index', 2)}, "
+            f"{'z pozycja' if has_pos else 'BEZ pozycji'}, {n_scan} sektorow skanu, "
+            + (f"UWAGA przeciek {leak}" if leak else "bez wyjsc polityki")
+            + f"\n  sufit kNN dla porownania: {ceiling}")
+
 
 def run_single_seed(trajectories, seed):
     ckpt, best_val = train_dt.train_once(
@@ -175,7 +162,6 @@ def run_single_seed(trajectories, seed):
         s_norm, rtg = prep(traj, ckpt)
         acts = traj["actions"]
         S, A, R, TS, M = build_windows(s_norm, acts, rtg, K, cfg["max_ep_len"])
-        # teacher forcing musi respektowac to, czym model byl karmiony w treningu
         A_in = np.zeros_like(A) if cfg.get("zero_actions") else A
         A_tf.append(predict_batched(model, S, A_in, R, TS, M))
         A_ar.append(predict_autoregressive(model, s_norm, rtg, ckpt, acts.shape[1]))
@@ -199,14 +185,10 @@ def run_single_seed(trajectories, seed):
 
 
 def run_sweep():
-    # Trajektorie zostaja z SUROWYM yaw. Konwersje na sin/cos robi wylacznie
-    # prep(), na podstawie flagi z checkpointu - i robi to na kopii, nie
-    # mutujac datasetu. Konwertowanie takze tutaj rozszerzaloby stan dwa razy
-    # (20 -> 21 -> 22) i prep() nie zgodzilby sie z wymiarem state_mean.
-    trajectories, action_scale = train_dt.load_dataset(train_dt.DATASET_FILE)
+    trajectories, action_scale = load_dataset(train_dt.DATASET_FILE)
 
-    print(f"Urzadzenie: {train_dt.DEVICE}   trajektorii: {len(trajectories)}   "
-          f"action_scale={action_scale:.4f} m")
+    print(f"Urzadzenie: {train_dt.DEVICE}   dataset: {train_dt.DATASET_FILE}")
+    print(f"trajektorii: {len(trajectories)}   action_scale={action_scale:.4f} m")
     print(f"ZERO_ACTIONS_IN_CONTEXT = {train_dt.ZERO_ACTIONS_IN_CONTEXT}   "
           f"ACTION_HEAD = {train_dt.ACTION_HEAD}"
           + (f" ({train_dt.N_DIR_BINS} binow)" if train_dt.ACTION_HEAD == "discrete" else ""))
@@ -248,28 +230,24 @@ def run_sweep():
         print("  nie naprawi; potrzebna glowica dyskretna zamiast MSE.")
 
 
-# ===========================================================================
-# Copycat
-# ===========================================================================
-
 def run_copycat():
-    """Czy model czyta stan, czy calkuje wlasne poprzednie wyjscie.
-
-      teacher          - kontekst z PRAWDZIWYMI poprzednimi akcjami
-      bez akcji        - akcje w kontekscie wyzerowane
-      autoregresywnie  - kontekst z WLASNYMI predykcjami modelu
-    """
     model, ckpt = load_checkpoint()
-    trajectories, action_scale = load_dataset()
     cfg = ckpt["config"]
+    dataset_file = DATASET_FILE or cfg.get("dataset_file", train_dt.DATASET_FILE)
+    trajectories, action_scale = load_dataset(dataset_file)
     K = cfg["context_length"]
 
     val = held_out(trajectories, ckpt)
     if not val:
         print("Brak epizodow walidacyjnych - przerwane.")
         return
-    print(f"Epizody: {[t['source_file'] for t in val]}")
-    print(f"context_length={K}, action_scale={action_scale:.4f} m\n")
+    print(f"Checkpoint: {CHECKPOINT_FILE}")
+    print(f"Dataset:    {dataset_file}")
+    print(f"  {describe_variant(cfg)}")
+    print(f"Epizodow walidacyjnych: {len(val)}, "
+          f"grup: {len({t.get('group', t['source_file']) for t in val})}")
+    print(f"context_length={K}, action_scale={action_scale:.4f} m, "
+          f"zero_actions={cfg.get('zero_actions')}\n")
 
     res = {"teacher": [], "bez akcji": [], "autoregresywnie": []}
     truth, valid_all, prev_all = [], [], []
@@ -313,6 +291,12 @@ def run_copycat():
     print(f"  koszt usuniecia poprzednich akcji: {d_noact:+.1f} st")
     print(f"  koszt autoregresji:                {d_auto:+.1f} st")
 
+    if cfg.get("zero_actions"):
+        print("\n  UWAGA: model trenowany z ZERO_ACTIONS_IN_CONTEXT, wiec 'teacher'")
+        print("  i 'bez akcji' powinny byc niemal identyczne - 'teacher' podaje mu")
+        print("  wejscie, ktorego nigdy nie widzial. Duza roznica oznaczalaby, ze")
+        print("  embedding akcji mimo wszystko wplywa na wynik.")
+
     if d_noact < 3 and d_auto < 3:
         print("\n  Model czyta stan, nie kopiuje poprzedniej akcji.")
     elif d_auto > 15:
@@ -321,9 +305,14 @@ def run_copycat():
     else:
         print("\n  Czesciowa zaleznosc od poprzedniej akcji.")
 
+    print(f"\n  Baseline 'kopiuj a_t-1' daje {np.median(ang_prev):.1f} st. Model musi")
+    print("  bic go z zapasem, inaczej metryka nie odroznia czytania stanu od")
+    print("  wygladzania - to samo zadanie w evaluate_dt.py daje 6.7 st modelu")
+    print("  wobec 10.4 st baseline'u, czyli przewage raptem 3.7 st.")
+
 
 if __name__ == "__main__":
-    if len(sys.argv) > 1 and sys.argv[1] == "copycat":
-        run_copycat()
-    else:
+    if len(sys.argv) > 1 and sys.argv[1] == "sweep":
         run_sweep()
+    else:
+        run_copycat()

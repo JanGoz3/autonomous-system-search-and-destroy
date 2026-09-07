@@ -12,17 +12,24 @@ public struct DTStepData
     public float posX;
     public float posZ;
     public float yaw;
-    public float[] telemetry;   // 17 wartosci z Chassis.GetTelemetryState()
+    public float[] telemetry;
     public bool collision;
     public float expertX;       // ETYKIETA: wektor do pursuit pointa w ukladzie auta
     public float expertZ;
     public bool expertValid;    // czy AutoExplorer mial w tym kroku wyznaczona trase
+    public float turretPitchDeg;
+    public float turretYawDeg;
+    public float[] scanDistances;
+    public float[] scanAges;
+    public float[] scanPitches;
 }
 
 public class DTDataLogger : MonoBehaviour
 {
     [Header("References")]
     public Chassis chassis;
+    public ServosCamera servosCamera;
+    public TofScanBuffer tofScanBuffer;
     public Transform carTransform;
     public AutoExplorer autoExplorer;
     public CarAgent carAgent;
@@ -51,18 +58,20 @@ public class DTDataLogger : MonoBehaviour
     private List<DTStepData> buffer = new List<DTStepData>();
     private float timer = 0f;
     private int stepCounter = 0;
+    private int scanSectorsThisChunk = 0;
 
     void Reset()
     {
         chassis = GetComponent<Chassis>();
+        servosCamera = GetComponentInChildren<ServosCamera>(true);
+        tofScanBuffer = GetComponentInChildren<TofScanBuffer>(true);
         carTransform = transform;
         carAgent = GetComponent<CarAgent>();
+        autoExplorer = GetComponent<AutoExplorer>();
     }
 
     void Awake()
     {
-        // Bez tego kazde wejscie w Play Mode zaczynaloby numeracje od 0
-        // i NADPISYWALO pliki z poprzednich sesji.
         currentEpisodeId = GetNextAvailableEpisodeId();
     }
 
@@ -112,9 +121,6 @@ public class DTDataLogger : MonoBehaviour
             carAgent.hadCollisionThisStep = false;
         }
 
-        // Etykieta prosto od eksperta, zamiast relabelingu z przyszlej pozycji
-        // auta. Dzieki temu nie zaleza od tego, jak poradzil sobie driver -
-        // szarpanie sie i cofanie przestaje zanieczyszczac dane.
         Vector2 expert = Vector2.zero;
         bool expertOk = false;
         if (autoExplorer != null && autoExplorer.isExploring)
@@ -123,25 +129,51 @@ public class DTDataLogger : MonoBehaviour
             expertOk = true;
         }
 
+        float[] telemetrySnapshot = (float[])chassis.GetTelemetryState().Clone();
+
+        (float pitch, float yaw) turretAngles = servosCamera != null
+            ? servosCamera.GetActualPitchYawDegrees()
+            : (0f, 0f);
+
         buffer.Add(new DTStepData
         {
             t = stepCounter++,
             posX = carTransform.position.x,
             posZ = carTransform.position.z,
             yaw = carTransform.eulerAngles.y,
-            telemetry = chassis.GetTelemetryState(),
+            telemetry = telemetrySnapshot,
             collision = collisionFlag,
             expertX = expert.x,
             expertZ = expert.y,
             expertValid = expertOk,
+            turretPitchDeg = turretAngles.pitch,
+            turretYawDeg = turretAngles.yaw,
+            scanDistances = tofScanBuffer != null ? tofScanBuffer.GetNormalizedDistances() : null,
+            scanAges = tofScanBuffer != null ? tofScanBuffer.GetNormalizedAges() : null,
+            scanPitches = tofScanBuffer != null ? tofScanBuffer.GetMeasurementPitchesDegrees() : null,
         });
         stepsInCurrentChunk = buffer.Count;
     }
 
-    // ---- sterowanie sesja -------------------------------------------------
 
     public void StartEpisode()
     {
+        if (servosCamera == null)
+            Debug.LogWarning("[DTDataLogger] Brak referencji ServosCamera: turret_pitch_deg "
+                + "i turret_yaw_deg beda zapisywane jako 0. Podepnij ServosCamera w Inspectorze.", this);
+
+        if (tofScanBuffer == null)
+        {
+            Debug.LogWarning("[DTDataLogger] Brak referencji TofScanBuffer: kolumny scan_* "
+                + "beda pominiete. Podepnij bufor w Inspectorze.", this);
+            scanSectorsThisChunk = 0;
+        }
+        else
+        {
+            tofScanBuffer.Clear();
+            scanSectorsThisChunk = tofScanBuffer.SectorCount;
+        }
+
         buffer.Clear();
         stepCounter = 0;
         timer = 0f;
@@ -151,7 +183,7 @@ public class DTDataLogger : MonoBehaviour
         if (autoExplorer != null) autoExplorer.StartExploring();
 
         Debug.Log($"[DTDataLogger] Start sesji (epizod {currentEpisodeId}), "
-                + $"auto-chunk co {autoEndAfterSteps} krokow");
+                + $"auto-chunk co {autoEndAfterSteps} krokow, sektorow skanu: {scanSectorsThisChunk}");
     }
 
     private void SaveCurrentChunkAndContinue()
@@ -163,19 +195,8 @@ public class DTDataLogger : MonoBehaviour
         buffer.Clear();
         stepCounter = 0;
         stepsInCurrentChunk = 0;
-        // NIE ruszamy timer/isRecording/autoExplorer - jazda trwa nieprzerwanie
     }
 
-    /// <summary>
-    /// Zamyka biezacy fragment i pozwala kontynuowac nagrywanie od nowa.
-    /// Wolane przez AutoExplorer po wykryciu zaklinowania, ZANIM auto zostanie
-    /// przeniesione - dzieki temu respawn nie trafia do srodka trajektorii,
-    /// tylko rozpoczyna nowy epizod.
-    ///
-    /// Fragment krotszy niz minEpisodeSteps jest odrzucany: koncowka przed
-    /// zaklinowaniem to zapis nieudanych prob wyjscia, czyli dokladnie to,
-    /// czego nie chcemy w etykietach.
-    /// </summary>
     public void RestartEpisode(string reason)
     {
         if (!isRecording) return;
@@ -223,18 +244,43 @@ public class DTDataLogger : MonoBehaviour
                 + $"odrzucone fragmenty: {discardedFragments}");
     }
 
-    // ---- zapis ------------------------------------------------------------
+    private static float SafeAt(float[] arr, int i) =>
+        arr != null && i < arr.Length ? arr[i] : 0f;
 
     private void SaveEpisodeToCsv()
     {
+        if (buffer.Count == 0) return;
+
         string dir = Path.Combine(Application.persistentDataPath, outputFolder);
         Directory.CreateDirectory(dir);
         string path = Path.Combine(dir, $"{FilePrefix()}{currentEpisodeId:D4}.csv");
 
+        int telemetryCount = buffer[0].telemetry.Length;
+        int scanCount = scanSectorsThisChunk;
+        bool mismatch = false;
+
+        foreach (var s in buffer)
+        {
+            if (s.telemetry.Length != telemetryCount)
+            {
+                Debug.LogError("[DTDataLogger] Zmienna dlugosc telemetrii w obrebie fragmentu - "
+                    + "plik bedzie niespojny.");
+                break;
+            }
+            if ((s.scanDistances?.Length ?? 0) != scanCount) { mismatch = true; }
+        }
+        if (mismatch)
+            Debug.LogWarning($"[DTDataLogger] Liczba sektorow skanu zmienila sie w trakcie "
+                + $"fragmentu. Uzywam {scanCount} kolumn, brakujace pola zapisuje jako 0.");
+
         var sb = new StringBuilder();
         sb.Append("t,posX,posZ,yaw");
-        for (int i = 0; i < 17; i++) sb.Append($",telem_{i}");
-        sb.Append(",collision,expert_x,expert_z,expert_valid").AppendLine();
+        for (int i = 0; i < telemetryCount; i++) sb.Append($",telem_{i}");
+        sb.Append(",collision,expert_x,expert_z,expert_valid,turret_pitch_deg,turret_yaw_deg");
+        for (int s = 0; s < scanCount; s++) sb.Append($",scan_dist_{s}");
+        for (int s = 0; s < scanCount; s++) sb.Append($",scan_age_{s}");
+        for (int s = 0; s < scanCount; s++) sb.Append($",scan_pitch_{s}");
+        sb.AppendLine();
 
         var inv = CultureInfo.InvariantCulture;
         foreach (var s in buffer)
@@ -243,17 +289,26 @@ public class DTDataLogger : MonoBehaviour
             sb.Append(',').Append(s.posX.ToString(inv));
             sb.Append(',').Append(s.posZ.ToString(inv));
             sb.Append(',').Append(s.yaw.ToString(inv));
-            for (int i = 0; i < s.telemetry.Length; i++)
-                sb.Append(',').Append(s.telemetry[i].ToString(inv));
+            for (int i = 0; i < telemetryCount; i++)
+                sb.Append(',').Append(SafeAt(s.telemetry, i).ToString(inv));
             sb.Append(',').Append(s.collision ? "1" : "0");
             sb.Append(',').Append(s.expertX.ToString(inv));
             sb.Append(',').Append(s.expertZ.ToString(inv));
             sb.Append(',').Append(s.expertValid ? "1" : "0");
+            sb.Append(',').Append(s.turretPitchDeg.ToString(inv));
+            sb.Append(',').Append(s.turretYawDeg.ToString(inv));
+            for (int i = 0; i < scanCount; i++)
+                sb.Append(',').Append(SafeAt(s.scanDistances, i).ToString(inv));
+            for (int i = 0; i < scanCount; i++)
+                sb.Append(',').Append(SafeAt(s.scanAges, i).ToString(inv));
+            for (int i = 0; i < scanCount; i++)
+                sb.Append(',').Append(SafeAt(s.scanPitches, i).ToString(inv));
             sb.AppendLine();
         }
 
         File.WriteAllText(path, sb.ToString());
-        Debug.Log($"[DTDataLogger] Zapisano epizod {currentEpisodeId} ({buffer.Count} krokow)");
+        Debug.Log($"[DTDataLogger] Zapisano epizod {currentEpisodeId} ({buffer.Count} krokow, "
+                + $"{telemetryCount} telem + {scanCount} sektorow skanu)");
     }
 
     void Update()

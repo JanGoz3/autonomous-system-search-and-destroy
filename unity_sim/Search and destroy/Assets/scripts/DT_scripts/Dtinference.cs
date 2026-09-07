@@ -14,6 +14,7 @@ public class DTInference : MonoBehaviour
 
     [Header("References")]
     public Chassis chassis;
+    public TofScanBuffer tofScanBuffer;
     public Transform carTransform;
     public Transform target;
     public CarAgent carAgent;   // do odczytu flagi kolizji (kara -2.0 w nagrodzie)
@@ -27,12 +28,25 @@ public class DTInference : MonoBehaviour
 
     [Header("Model Config (z wydruku export_to_onnx.py)")]
     public int contextLength = 20;
-    public int stateDim = 20;
+    [Tooltip("Liczba wartosci w SUROWYM wektorze stanu, prosto z wydruku dt_export_to_onnx.py. Dla wariantu pos1_scan1p_nocmd to 85, dla pos0 - 83.")]
+    public int stateDim = 85;
     public int actionDim = 2;
     [Tooltip("max_ep_len z checkpointu. Timesteps sa przycinane do maxEpLen-1, inaczej embedding wyjdzie poza zakres przy dluzszej jezdzie.")]
     public int maxEpLen = 77;
     [Tooltip("Musi zgadzac sie z ZERO_ACTIONS_IN_CONTEXT z train_dt.py. Model trenowany z zerami nigdy nie widzial prawdziwych akcji na wejsciu.")]
     public bool zeroActionsInContext = true;
+
+    [Header("Wariant stanu (MUSI zgadzac sie z build_dt_dataset.py)")]
+    [Tooltip("INCLUDE_POSITION. Odznacz dla wariantu bez posX/posZ - tego, ktory ma szanse zadzialac na Teensy.")]
+    public bool includePosition = true;
+    [Tooltip("INCLUDE_SCAN. Dolacza scan_dist_* i scan_age_* z TofScanBuffer.")]
+    public bool includeScan = true;
+    [Tooltip("INCLUDE_SCAN_PITCH. Dolacza scan_pitch_*, czyli pitch kazdego pomiaru.")]
+    public bool includeScanPitch = true;
+    [Tooltip("EXCLUDE_POLICY_OUTPUTS. Pomija telem_0..3 - gaz, skret i oba katy kamery. PPO wylicza je z kierunku do waypointa, czyli z ETYKIETY: same daja 4.2 st w tescie kNN przy kontroli 30.5 st. Zostawienie ich uczy model przepisywac wlasna poprzednia decyzje.")]
+    public bool excludePolicyOutputs = true;
+    [Tooltip("SCAN_PITCH_SCALE_DEG z build_dt_dataset.py.")]
+    public float scanPitchScaleDeg = 45f;
 
     [Header("Return-to-go Conditioning")]
     [Tooltip("UWAGA: przy etykietach eksperta sumy nagrod sa DODATNIE (33..118 w zbadanych epizodach), a RTG=0 wystepuje wylacznie na KONCU epizodu. Zostawienie 0 warunkuje model na zachowanie terminalne. Wpisz ok. p90 z wydruku build_dt_dataset.py.")]
@@ -85,6 +99,7 @@ public class DTInference : MonoBehaviour
     private readonly StringBuilder decisionCsv = new StringBuilder();
     private Vector3 lastDecisionPos;
     private float episodeTime = 0f;
+    private bool stateDimWarned = false;
 
     void Start()
     {
@@ -94,6 +109,13 @@ public class DTInference : MonoBehaviour
 
     public void StartInference()
     {
+        stateDimWarned = false;
+        if (includeScan && tofScanBuffer == null)
+            Debug.LogError("[DTInference] includeScan = true, ale brak referencji "
+                + "TofScanBuffer. Kolumny skanu beda zerami, a model dostanie dane "
+                + "niezgodne z treningiem.");
+        if (tofScanBuffer != null) tofScanBuffer.Clear();
+
         stateHistory.Clear();
         actionHistory.Clear();
         returnToGoHistory.Clear();
@@ -182,18 +204,51 @@ public class DTInference : MonoBehaviour
     private float[] GetCurrentStateVector()
     {
         float[] telemetry = chassis.GetTelemetryState();
+        float[] scanDist = tofScanBuffer != null ? tofScanBuffer.GetNormalizedDistances() : null;
+        float[] scanAge = tofScanBuffer != null ? tofScanBuffer.GetNormalizedAges() : null;
+        float[] scanPitch = tofScanBuffer != null ? tofScanBuffer.GetMeasurementPitchesDegrees() : null;
+
         float[] state = new float[stateDim];
-        state[0] = carTransform.position.x;
-        state[1] = carTransform.position.z;
-        state[2] = carTransform.eulerAngles.y;
-        for (int i = 0; i < telemetry.Length && 3 + i < stateDim; i++)
-            state[3 + i] = telemetry[i];
+        int k = 0;
+
+        if (includePosition)
+        {
+            state[k++] = carTransform.position.x;
+            state[k++] = carTransform.position.z;
+        }
+        state[k++] = carTransform.eulerAngles.y;
+
+        for (int i = 0; i < telemetry.Length; i++)
+        {
+            if (excludePolicyOutputs && i < 4) continue;   // telem_0..3 = wyjscia PPO
+            if (k >= stateDim) break;
+            state[k++] = telemetry[i];
+        }
+
+        if (includeScan && scanDist != null && scanAge != null)
+        {
+            for (int i = 0; i < scanDist.Length && k < stateDim; i++)
+                state[k++] = scanDist[i];
+            for (int i = 0; i < scanAge.Length && k < stateDim; i++)
+                state[k++] = scanAge[i];
+            if (includeScanPitch && scanPitch != null)
+                for (int i = 0; i < scanPitch.Length && k < stateDim; i++)
+                    state[k++] = scanPitch[i] / scanPitchScaleDeg;
+        }
+
+        if (k != stateDim && !stateDimWarned)
+        {
+            stateDimWarned = true;
+            Debug.LogError($"[DTInference] Zlozono {k} wartosci, a stateDim={stateDim}. "
+                + "Model dostaje ZLE dane. Sprawdz stateDim, flagi wariantu i liczbe "
+                + "sektorow TofScanBuffer wzgledem wydruku dt_export_to_onnx.py.");
+        }
         return state;
     }
 
     private void MakeDecision()
     {
-        // currentReturnToGo -= pendingReward;   // dekrementacja wylaczona swiadomie
+        // currentReturnToGo -= pendingReward;
         pendingReward = 0f;
 
         stateHistory.Add(GetCurrentStateVector());
