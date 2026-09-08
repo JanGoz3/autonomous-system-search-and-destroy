@@ -15,12 +15,11 @@ public class YoloVision : MonoBehaviour
     private const int MaxTrackedObjects = 3;
     private const int FeaturesPerObject = 9; // 5 spatial + 4 one-hot classes.
     private readonly float[] m_LatestYoloState = new float[MaxTrackedObjects * FeaturesPerObject];
-
     private int m_StaggerOffset;
-    private const int CLASS_TARGET = 0;
-    private const int CLASS_PERSON = 1;
-    private const int CLASS_CHAIR = 2;
-    private const int CLASS_DOOR = 3;
+    public const int CLASS_TARGET = 3;
+    public const int CLASS_PERSON = 2;
+    public const int CLASS_CHAIR = 0;
+    public const int CLASS_DOOR = 1;
 
     private struct Detection {
         public float x, y, w, h, conf, classId;
@@ -110,10 +109,10 @@ public class YoloVision : MonoBehaviour
 
             // One-Hot Class Flags
             int id = Mathf.RoundToInt(d.classId);
-            m_LatestYoloState[offset + 5] = (id == CLASS_TARGET) ? 1f : 0f;
-            m_LatestYoloState[offset + 6] = (id == CLASS_PERSON) ? 1f : 0f;
-            m_LatestYoloState[offset + 7] = (id == CLASS_CHAIR)  ? 1f : 0f;
-            m_LatestYoloState[offset + 8] = (id == CLASS_DOOR)   ? 1f : 0f;
+            m_LatestYoloState[offset + 5] = (id == CLASS_CHAIR) ? 1f : 0f;
+            m_LatestYoloState[offset + 6] = (id == CLASS_DOOR) ? 1f : 0f;
+            m_LatestYoloState[offset + 7] = (id == CLASS_PERSON)  ? 1f : 0f;
+            m_LatestYoloState[offset + 8] = (id == CLASS_TARGET)   ? 1f : 0f;
         }
     }       
 
