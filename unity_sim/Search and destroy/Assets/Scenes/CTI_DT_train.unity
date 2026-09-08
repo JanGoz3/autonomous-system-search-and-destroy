@@ -1499,18 +1499,18 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c0685c46e5dc5ba4cafddaa6b3735dbd, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::DTInference
-  dtModelAsset: {fileID: 5022602860645237092, guid: 913b9464346a32842b0b632872ff8d99, type: 3}
+  dtModelAsset: {fileID: 5022602860645237092, guid: d7026366574464e48bb54a88d794743c, type: 3}
   chassis: {fileID: 663955676}
   tofScanBuffer: {fileID: 663955684}
   carTransform: {fileID: 663955667}
   target: {fileID: 494817505}
   carAgent: {fileID: 663955674}
-  decisionInterval: 1.5
+  decisionInterval: 1
   rewardTickInterval: 0.1
   contextLength: 20
   stateDim: 85
   actionDim: 2
-  maxEpLen: 61
+  maxEpLen: 110
   zeroActionsInContext: 1
   useTrainingStylePadding: 0
   includePosition: 1
@@ -1518,7 +1518,7 @@ MonoBehaviour:
   includeScanPitch: 1
   excludePolicyOutputs: 1
   scanPitchScaleDeg: 45
-  initialTargetReturn: 19
+  initialTargetReturn: 35
   decayReturnToGo: 0
   pseudoEpisodeDecisions: 0
   gridCellSize: 1
@@ -1530,6 +1530,7 @@ MonoBehaviour:
   navMeshSampleRadius: 1.5
   drawGizmos: 1
   logDecisions: 1
+  logStates: 1
   decisionLogFolder: DTDecisionLog
   decisionLogTag: 
   flushEveryDecisions: 25
@@ -1559,6 +1560,7 @@ MonoBehaviour:
   carRigidbody: {fileID: 663955668}
   target: {fileID: 494817505}
   dataLogger: {fileID: 663955671}
+  tofScanBuffer: {fileID: 663955684}
   lookAheadDistance: 1.5
   searchForward: 2.5
   searchBackward: 1
@@ -1610,6 +1612,7 @@ MonoBehaviour:
   stepsInCurrentChunk: 0
   savedEpisodes: 0
   discardedFragments: 0
+  logStride: 5
 --- !u!114 &663955674 stripped
 MonoBehaviour:
   m_CorrespondingSourceObject: {fileID: 3815576015037651868, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
@@ -2121,7 +2124,7 @@ PrefabInstance:
     - target: {fileID: 8360594413510804119, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
       propertyPath: m_Model
       value: 
-      objectReference: {fileID: 5022602860645237092, guid: 9f5d0bcaca4ff1a448ec6e5ca9577172, type: 3}
+      objectReference: {fileID: 5022602860645237092, guid: 00bff1dfd116b8b46a1ee4eac4f36979, type: 3}
     - target: {fileID: 8360594413510804119, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
       propertyPath: m_BrainParameters.VectorObservationSize
       value: 40
@@ -2770,12 +2773,9 @@ MonoBehaviour:
   sampleInterval: 5
   stallThreshold: 0.1
   randomWaypointDistance: 1.5
-  decisionInterval: 1.5
+  decisionInterval: 1
   policiesToRun: 0100000000000000
-  sweepDecisionIntervals:
-  - 0.5
-  - 1
-  - 1.5
+  sweepDecisionIntervals: []
   spawnOnRoute: 1
   spawnYawJitter: 90
   spawnLateralOffset: 0.3

@@ -9,14 +9,14 @@ import pandas as pd
 
 DATA_DIR = r"C:\Users\Admin\AppData\LocalLow\DefaultCompany\Search and destroy\DTDataset"
 
-INCLUDE_POSITION = False    # posX, posZ w wektorze stanu (oracle - nie ma go na Teensy)
-INCLUDE_SCAN = True         # scan_dist_*, scan_age_*
-INCLUDE_SCAN_PITCH = True   # scan_pitch_* - pitch, przy ktorym wykonano pomiar
+INCLUDE_POSITION = True
+INCLUDE_SCAN = True
+INCLUDE_SCAN_PITCH = True
 EXCLUDE_POLICY_OUTPUTS = True
 POLICY_OUTPUT_COLUMNS = ("telem_0", "telem_1", "telem_2", "telem_3")
 SCAN_PITCH_SCALE_DEG = 45.0
 
-OUTPUT_FILE = (f"dt_dataset_pos{int(INCLUDE_POSITION)}"
+OUTPUT_FILE = (f"dt_dataset_pos_v2{int(INCLUDE_POSITION)}"
                f"_scan{int(INCLUDE_SCAN)}"
                f"{'p' if INCLUDE_SCAN and INCLUDE_SCAN_PITCH else ''}"
                f"{'_nocmd' if EXCLUDE_POLICY_OUTPUTS else ''}.pkl")
@@ -24,12 +24,12 @@ OUTPUT_FILE = (f"dt_dataset_pos{int(INCLUDE_POSITION)}"
 USE_EXPERT_LABEL = True
 
 USE_DISTANCE_RELABEL = True
-WAYPOINT_DIST = 1.5          # metry - jak daleko ma byc waypoint
-MAX_LOOKAHEAD_STEPS = 60     # 6 s przy 10 Hz - twardy limit szukania
+WAYPOINT_DIST = 1.5
+MAX_LOOKAHEAD_STEPS = 60
 
-HORIZON_STEPS = 15           # uzywane tylko gdy USE_DISTANCE_RELABEL = False
+HORIZON_STEPS = 15
 
-DECIMATE = 15
+DECIMATE = 10
 KEEP_ALL_PHASES = True
 
 SUBSAMPLE_KEYS = ("states", "actions_m", "valid", "reached", "moving",
@@ -44,9 +44,9 @@ COLLISION_PENALTY = -2.0
 MIN_EPISODE_LENGTH = MAX_LOOKAHEAD_STEPS + 10
 
 STILL_WINDOW = 5
-STILL_DIST_M = 0.02          # metry - ponizej tego w oknie = auto stoi
+STILL_DIST_M = 0.02
 
-KEEP_EVERY_STILL = 10        # z odcinka bezruchu zostaw co N-ta probke
+KEEP_EVERY_STILL = 10
 MIN_VALID_FRACTION = 0.10
 
 
@@ -108,7 +108,7 @@ def thin_still_runs(moving, keep_every=KEEP_EVERY_STILL):
         j = i
         while j < n and not moving[j]:
             j += 1
-        valid[i:j:keep_every] = True     # co keep_every-ta z odcinka [i, j)
+        valid[i:j:keep_every] = True
         i = j
     return valid
 
@@ -193,8 +193,7 @@ def get_state_columns(df):
 
 def build_state_vector(df, columns, scan_pitch_cols):
     states = df[columns].to_numpy(dtype=np.float32)
-    # pitch w stopniach ma zakres ok. -40..+22, reszta stanu jest rzedu jednosci -
-    # bez skalowania zdominowalby metryke odleglosci w kNN
+
     if scan_pitch_cols:
         idx = [columns.index(c) for c in scan_pitch_cols]
         states[:, idx] /= SCAN_PITCH_SCALE_DEG
@@ -274,10 +273,6 @@ def expand_phases(trajectories):
 
 
 def report_scan_health(trajectories, state_columns):
-    """Diagnostyka profilu: ile sektorow jest swiezych i jak stare sa pomiary.
-
-    Blisko 1 niezerowego sektora = bufor nie akumuluje.
-    Wiek bliski 1 w wiekszosci sektorow = wiezyczka nie omiata zakresu."""
     dist_idx = [i for i, c in enumerate(state_columns) if c.startswith("scan_dist_")]
     age_idx = [i for i, c in enumerate(state_columns) if c.startswith("scan_age_")]
     if not dist_idx:

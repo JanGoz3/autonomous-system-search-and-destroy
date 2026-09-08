@@ -22,8 +22,9 @@ public class DTInference : MonoBehaviour
     [Header("Decision Timing")]
     [Tooltip("Co ile sekund DT wybiera nowy waypoint. Powinno zgadzac sie z decymacja "
            + "w build_dt_dataset.py: DECIMATE = decisionInterval / rewardTickInterval. "
-           + "Przy DECIMATE=15 i logowaniu 10 Hz to 1.5 s.")]
-    public float decisionInterval = 1.5f;
+           + "Benchmark pokazal, ze 1.0 s jest optymalne - przy 1.5 s i 0.5 s nawet ekspert "
+           + "podany przez ten sam interfejs sie zaklinowuje.")]
+    public float decisionInterval = 1.0f;
 
     [Tooltip("Krok liczenia nagrody. MUSI rownac sie logIntervalSeconds z DTDataLogger "
            + "(0.1 = 10 Hz), bo return-to-go w danych jest sumowany z ta czestotliwoscia.")]
@@ -36,49 +37,41 @@ public class DTInference : MonoBehaviour
            + "robi juz graf ONNX. Dla wariantu pos1_scan1p_nocmd to 85, dla pos0 - 83.")]
     public int stateDim = 85;
     public int actionDim = 2;
-    [Tooltip("max_ep_len z checkpointu. Timesteps sa przycinane do maxEpLen-1, inaczej "
-           + "embedding wyjdzie poza zakres przy dluzszej jezdzie.")]
+    [Tooltip("max_ep_len z checkpointu. Timesteps sa przycinane do maxEpLen-1.")]
     public int maxEpLen = 77;
-    [Tooltip("Musi zgadzac sie z ZERO_ACTIONS_IN_CONTEXT z train_dt.py. Model trenowany "
-           + "z zerami nigdy nie widzial prawdziwych akcji na wejsciu.")]
+    [Tooltip("Musi zgadzac sie z ZERO_ACTIONS_IN_CONTEXT z train_dt.py.")]
     public bool zeroActionsInContext = true;
 
     [Tooltip("Gdy TRUE, pozycje paddingu dostaja zera i attention_mask = 0, dokladnie jak "
            + "w get_batch() podczas treningu. Gdy FALSE (domyslnie), padding powtarza "
            + "najstarszy stan z maska 1 - niezgodne z treningiem, ale bezpieczne. "
-           + "WLACZAJ DOPIERO po naprawieniu maski uwagi w decision_transformer.py: "
-           + "w niepoprawionej wersji w pelni zamaskowane wiersze daja softmax(-inf) = NaN.")]
+           + "WLACZAJ DOPIERO po naprawieniu maski uwagi w decision_transformer.py.")]
     public bool useTrainingStylePadding = false;
 
     [Header("Wariant stanu (MUSI zgadzac sie z build_dt_dataset.py)")]
-    [Tooltip("INCLUDE_POSITION. Odznacz dla wariantu bez posX/posZ - tego, ktory ma szanse "
-           + "zadzialac na Teensy.")]
+    [Tooltip("INCLUDE_POSITION.")]
     public bool includePosition = true;
     [Tooltip("INCLUDE_SCAN. Dolacza scan_dist_* i scan_age_* z TofScanBuffer.")]
     public bool includeScan = true;
-    [Tooltip("INCLUDE_SCAN_PITCH. Dolacza scan_pitch_*, czyli pitch kazdego pomiaru.")]
+    [Tooltip("INCLUDE_SCAN_PITCH. Dolacza scan_pitch_*.")]
     public bool includeScanPitch = true;
-    [Tooltip("EXCLUDE_POLICY_OUTPUTS. Pomija telem_0..3 - gaz, skret i oba katy kamery. "
-           + "PPO wylicza je z kierunku do waypointa, czyli z ETYKIETY.")]
+    [Tooltip("EXCLUDE_POLICY_OUTPUTS. Pomija telem_0..3 - wyjscia polityki PPO.")]
     public bool excludePolicyOutputs = true;
     [Tooltip("SCAN_PITCH_SCALE_DEG z build_dt_dataset.py.")]
     public float scanPitchScaleDeg = 45f;
 
     [Header("Return-to-go Conditioning")]
-    [Tooltip("Wpisz p90 z wydruku dt_diagnose.py (sekcja BONUS). Dla obecnego datasetu to ~19. "
-           + "Wartosci rzedu 100 sa 5x poza rozkladem - model dostaje wtedy embedding zwrotu, "
-           + "jakiego nigdy nie widzial.")]
+    [Tooltip("p90 z wydruku dt_diagnose.py (sekcja BONUS). Dla obecnego datasetu ~19.")]
     public float initialTargetReturn = 19f;
 
-    [Tooltip("Gdy FALSE (domyslnie), RTG jest stale przez caly przebieg. Gdy TRUE, maleje "
-           + "o zebrana nagrode - ale przy obecnym datasecie zjezdza do zera po ~27 decyzjach "
-           + "i dalej w wartosci ujemne, ktorych w danych prawie nie ma. "
-           + "Sensowniejsza alternatywa to pseudoEpisodeDecisions ponizej.")]
+    [Tooltip("Gdy TRUE, RTG maleje o zebrana nagrode. Przy obecnym datasecie zjezdza do zera "
+           + "po ~27 decyzjach i dalej w wartosci ujemne, ktorych w danych prawie nie ma.")]
     public bool decayReturnToGo = false;
 
-    [Tooltip("Gdy > 0, RTG i timesteps sa resetowane co tyle decyzji i maleja liniowo "
-           + "od initialTargetReturn do zera - odtwarza zaleznosc RTG/timestep z chunkow "
-           + "treningowych (autoEndAfterSteps / DECIMATE, czyli ~53). 0 = wylaczone.")]
+    [Tooltip("Gdy > 0, RTG i timesteps resetuja sie co tyle decyzji i maleja liniowo od "
+           + "initialTargetReturn do zera - odtwarza strukture chunku treningowego "
+           + "(autoEndAfterSteps / DECIMATE). Przy DECIMATE=10 i chunkach 800 to 80. "
+           + "0 = wylaczone.")]
     public int pseudoEpisodeDecisions = 0;
 
     [Header("Reward Function (IDENTYCZNA jak w build_dt_dataset.py)")]
@@ -88,11 +81,9 @@ public class DTInference : MonoBehaviour
     public float collisionPenalty = -2.0f;
 
     [Header("Diagnostyka")]
-    [Tooltip("Wymusza akcje (0, 1.5) zamiast predykcji modelu. Target MUSI wtedy pojawic sie "
-           + "dokladnie PRZED maska auta.")]
+    [Tooltip("Wymusza akcje (0, 1.5) zamiast predykcji modelu.")]
     public bool debugForceForward = false;
-    [Tooltip("Rzutuje waypoint na NavMesh. UWAGA: SamplePosition zwraca najblizszy punkt "
-           + "siatki, nie najblizszy OSIAGALNY.")]
+    [Tooltip("Rzutuje waypoint na NavMesh.")]
     public bool projectOntoNavMesh = true;
     public float navMeshSampleRadius = 1.5f;
     public bool drawGizmos = true;
@@ -100,11 +91,15 @@ public class DTInference : MonoBehaviour
     [Header("Log decyzji (diagnostyka)")]
     [Tooltip("Zapisuje kazda decyzje do CSV. Analiza: analyze_dt_run.py")]
     public bool logDecisions = true;
+    [Tooltip("Zapisuje SUROWY wektor stanu przy kazdej decyzji - ten sam, ktory trafia "
+           + "do modelu. Sluzy do porownania rozkladu wejsc z datasetem "
+           + "(compare_state_distribution.py). To rozstrzyga, czy model dostaje w Unity "
+           + "takie same dane jak w treningu, czy tylko trafia w inne stany.")]
+    public bool logStates = true;
     public string decisionLogFolder = "DTDecisionLog";
     [Tooltip("Etykieta trafiajaca do nazwy pliku - np. nazwa polityki albo numer przebiegu.")]
     public string decisionLogTag = "";
-    [Tooltip("Co ile decyzji dopisywac log na dysk. Dzieki temu crash albo wyjscie z Play Mode "
-           + "nie kasuje calego przebiegu. 0 = zapis tylko na koncu.")]
+    [Tooltip("Co ile decyzji dopisywac logi na dysk. 0 = zapis tylko na koncu.")]
     public int flushEveryDecisions = 25;
 
     [Header("Runtime State (read-only)")]
@@ -119,8 +114,7 @@ public class DTInference : MonoBehaviour
     public int cellsVisited = 0;
     [Tooltip("Ile decyzji mialo |kat| > 90 st, czyli cel ZA autem.")]
     public int decisionsBehind = 0;
-    [Tooltip("Ile decyzji zapadlo, gdy auto nie ruszylo sie o wiecej niz 0.1 m "
-           + "od poprzedniej decyzji.")]
+    [Tooltip("Ile decyzji zapadlo, gdy auto nie ruszylo sie o wiecej niz 0.1 m.")]
     public int decisionsWhileStalled = 0;
 
     private Worker m_Worker;
@@ -135,7 +129,9 @@ public class DTInference : MonoBehaviour
     private readonly HashSet<Vector2Int> visitedCells = new HashSet<Vector2Int>();
 
     private readonly StringBuilder decisionCsv = new StringBuilder();
+    private readonly StringBuilder stateCsv = new StringBuilder();
     private string decisionLogPath = null;
+    private string stateLogPath = null;
     private Vector3 lastDecisionPos;
     private float episodeTime = 0f;
     private bool stateDimWarned = false;
@@ -161,9 +157,7 @@ public class DTInference : MonoBehaviour
 
         stateDimWarned = false;
         if (includeScan && tofScanBuffer == null)
-            Debug.LogError("[DTInference] includeScan = true, ale brak referencji "
-                + "TofScanBuffer. Kolumny skanu beda zerami, a model dostanie dane "
-                + "niezgodne z treningiem.");
+            Debug.LogError("[DTInference] includeScan = true, ale brak referencji TofScanBuffer.");
         if (clearScanBuffer && tofScanBuffer != null) tofScanBuffer.Clear();
 
         stateHistory.Clear();
@@ -185,7 +179,7 @@ public class DTInference : MonoBehaviour
         lastDecisionPos = carTransform.position;
         isActive = true;
 
-        OpenDecisionLog();
+        OpenLogs();
         MakeDecision();
 
         Debug.Log($"[DTInference] Start. interwal={decisionInterval:F2}s  "
@@ -197,7 +191,7 @@ public class DTInference : MonoBehaviour
     {
         if (!isActive) return;
         isActive = false;
-        FlushDecisionLog();
+        FlushLogs();
 
         Debug.Log($"[DTInference] Koniec. decyzji={decisionCount}  " +
                   $"pozaNavMesh={waypointsOffNavMesh}  " +
@@ -307,7 +301,6 @@ public class DTInference : MonoBehaviour
     {
         if (pseudoEpisodeDecisions > 0)
         {
-
             if (stepInPseudoEpisode >= pseudoEpisodeDecisions) stepInPseudoEpisode = 0;
             float frac = 1f - (float)stepInPseudoEpisode / pseudoEpisodeDecisions;
             currentReturnToGo = initialTargetReturn * frac;
@@ -316,7 +309,6 @@ public class DTInference : MonoBehaviour
         {
             currentReturnToGo -= pendingReward;
         }
-
         pendingReward = 0f;
     }
 
@@ -324,7 +316,8 @@ public class DTInference : MonoBehaviour
     {
         UpdateReturnToGo();
 
-        stateHistory.Add(GetCurrentStateVector());
+        float[] rawState = GetCurrentStateVector();
+        stateHistory.Add(rawState);
         returnToGoHistory.Add(currentReturnToGo);
         actionHistory.Add(new float[actionDim]);
 
@@ -391,9 +384,9 @@ public class DTInference : MonoBehaviour
         {
             Debug.LogError("[DTInference] Model zwrocil NaN. Zatrzymuje inferencje - "
                 + "sprawdz maske uwagi w decision_transformer.py i eksport ONNX.", this);
-            StopInference();
             statesTensor.Dispose(); actionsTensor.Dispose(); rtgTensor.Dispose();
             timestepsTensor.Dispose(); maskTensor.Dispose();
+            StopInference();
             return;
         }
 
@@ -432,7 +425,7 @@ public class DTInference : MonoBehaviour
             else
             {
                 offNavMesh = true;
-                waypointsOffNavMesh++;   // cel poza zasiegiem NavMesh - zostawiamy poprzedni
+                waypointsOffNavMesh++;
             }
         }
 
@@ -440,9 +433,13 @@ public class DTInference : MonoBehaviour
             target.position = desired + new Vector3(0, 0.05f, 0);
 
         LogDecision(nowPos, angleDeg, magM, localDx, localDz, moved, offNavMesh, navShift);
+        LogState(rawState);
 
         decisionCount++;
         stepInPseudoEpisode++;
+
+        if (flushEveryDecisions > 0 && decisionCount % flushEveryDecisions == 0)
+            FlushLogs();
 
         statesTensor.Dispose();
         actionsTensor.Dispose();
@@ -451,22 +448,38 @@ public class DTInference : MonoBehaviour
         maskTensor.Dispose();
     }
 
-    private void OpenDecisionLog()
+    private void OpenLogs()
     {
         decisionCsv.Clear();
+        stateCsv.Clear();
         decisionLogPath = null;
-        if (!logDecisions) return;
+        stateLogPath = null;
+
+        if (!logDecisions && !logStates) return;
 
         string dir = Path.Combine(Application.persistentDataPath, decisionLogFolder);
         Directory.CreateDirectory(dir);
         string tag = string.IsNullOrEmpty(decisionLogTag) ? "run" : SanitizeTag(decisionLogTag);
-        decisionLogPath = Path.Combine(dir,
-            $"decisions_{tag}_{System.DateTime.Now:yyyyMMdd_HHmmss_fff}.csv");
+        string stamp = System.DateTime.Now.ToString("yyyyMMdd_HHmmss_fff");
 
-        File.WriteAllText(decisionLogPath,
-            "decision,t,posX,posZ,yaw,localDx,localDz,angleDeg,magM," +
-            "movedSinceLast,offNavMesh,navMeshShift,rtg\n");
-        Debug.Log($"[DTInference] Log decyzji -> {decisionLogPath}");
+        if (logDecisions)
+        {
+            decisionLogPath = Path.Combine(dir, $"decisions_{tag}_{stamp}.csv");
+            File.WriteAllText(decisionLogPath,
+                "decision,t,posX,posZ,yaw,localDx,localDz,angleDeg,magM," +
+                "movedSinceLast,offNavMesh,navMeshShift,rtg\n");
+            Debug.Log($"[DTInference] Log decyzji -> {decisionLogPath}");
+        }
+
+        if (logStates)
+        {
+            stateLogPath = Path.Combine(dir, $"states_{tag}_{stamp}.csv");
+            var head = new StringBuilder("decision");
+            for (int j = 0; j < stateDim; j++) head.Append(",s").Append(j);
+            head.Append('\n');
+            File.WriteAllText(stateLogPath, head.ToString());
+            Debug.Log($"[DTInference] Log stanow -> {stateLogPath}");
+        }
     }
 
     private static string SanitizeTag(string tag)
@@ -476,11 +489,18 @@ public class DTInference : MonoBehaviour
         return tag;
     }
 
-    private void FlushDecisionLog()
+    private void FlushLogs()
     {
-        if (decisionLogPath == null || decisionCsv.Length == 0) return;
-        File.AppendAllText(decisionLogPath, decisionCsv.ToString());
-        decisionCsv.Clear();
+        if (decisionLogPath != null && decisionCsv.Length > 0)
+        {
+            File.AppendAllText(decisionLogPath, decisionCsv.ToString());
+            decisionCsv.Clear();
+        }
+        if (stateLogPath != null && stateCsv.Length > 0)
+        {
+            File.AppendAllText(stateLogPath, stateCsv.ToString());
+            stateCsv.Clear();
+        }
     }
 
     private void LogDecision(Vector3 pos, float angleDeg, float magM,
@@ -503,20 +523,27 @@ public class DTInference : MonoBehaviour
             .Append(navShift.ToString("F3", ci)).Append(',')
             .Append(currentReturnToGo.ToString("F2", ci))
             .AppendLine();
+    }
 
-        if (flushEveryDecisions > 0 && (decisionCount + 1) % flushEveryDecisions == 0)
-            FlushDecisionLog();
+    private void LogState(float[] state)
+    {
+        if (stateLogPath == null) return;
+        var ci = CultureInfo.InvariantCulture;
+        stateCsv.Append(decisionCount.ToString(ci));
+        for (int j = 0; j < state.Length; j++)
+            stateCsv.Append(',').Append(state[j].ToString("F5", ci));
+        stateCsv.AppendLine();
     }
 
     void OnDrawGizmos()
     {
         if (!drawGizmos || !isActive || carTransform == null || target == null) return;
 
-        Gizmos.color = Color.green;                       // waypoint modelu
+        Gizmos.color = Color.green;
         Gizmos.DrawLine(carTransform.position, target.position);
         Gizmos.DrawWireSphere(target.position, 0.25f);
 
-        Gizmos.color = Color.cyan;                        // kierunek jazdy auta
+        Gizmos.color = Color.cyan;
         Gizmos.DrawRay(carTransform.position,
                        Quaternion.Euler(0f, carTransform.eulerAngles.y, 0f) * Vector3.forward * 1.5f);
     }

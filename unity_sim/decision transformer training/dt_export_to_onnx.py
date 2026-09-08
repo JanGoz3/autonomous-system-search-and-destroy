@@ -7,8 +7,8 @@ from models.DecisionTransformer.decision_transformer import DecisionTransformer
 
 torch.backends.mha.set_fastpath_enabled(False)
 
-CHECKPOINT_FILE = "dt_checkpoint.pt"
-ONNX_OUTPUT_FILE = "DecisionTransformer_newest2137.onnx"
+CHECKPOINT_FILE = "dt_checkpoint_v2.pt"
+ONNX_OUTPUT_FILE = "DecisionTransformer_newest_driver_v5.onnx"
 
 
 class DTExportWrapper(nn.Module):

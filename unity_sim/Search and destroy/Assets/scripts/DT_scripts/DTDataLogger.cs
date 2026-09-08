@@ -35,6 +35,9 @@ public class DTDataLogger : MonoBehaviour
     public CarAgent carAgent;
 
     [Header("Recording Settings")]
+    [Tooltip("Docelowy odstep miedzy krokami logu. Zaokraglany do calkowitej liczby krokow "
+           + "fizyki, wiec faktyczna czestotliwosc to Time.fixedDeltaTime * stride. "
+           + "Przy fixedDeltaTime = 0.02 i 0.1 s otrzymujesz dokladnie 10 Hz.")]
     public float logIntervalSeconds = 0.1f;   // 10 Hz
     public string outputFolder = "DTDataset";
     [Tooltip("Unikalny prefiks dla tej instancji (np. przy kilku rownoleglych arenach).")]
@@ -45,7 +48,7 @@ public class DTDataLogger : MonoBehaviour
     public int autoEndAfterSteps = 800;
 
     [Header("Restart przy zaklinowaniu")]
-    [Tooltip("Fragmenty krotsze niz tyle krokow sa ODRZUCANE zamiast zapisywane. Przy decymacji 15x to 150 krokow = 10 decyzji modelu - ponizej tego fragment nie ma wartosci jako trajektoria. Uwaga: filtrowanie tutaj systematycznie usuwa POCZATKI trajektorii, wiec nie ustawiaj tego wysoko.")]
+    [Tooltip("Fragmenty krotsze niz tyle krokow sa ODRZUCANE zamiast zapisywane. Przy decymacji 10x to 150 krokow = 15 decyzji modelu - ponizej tego fragment nie ma wartosci jako trajektoria. Uwaga: filtrowanie tutaj systematycznie usuwa POCZATKI trajektorii, wiec nie ustawiaj tego wysoko.")]
     public int minEpisodeSteps = 150;
 
     [Header("Runtime State (read-only)")]
@@ -54,9 +57,11 @@ public class DTDataLogger : MonoBehaviour
     public int stepsInCurrentChunk = 0;
     public int savedEpisodes = 0;
     public int discardedFragments = 0;
+    [Tooltip("Ile krokow fizyki przypada na jeden krok logu. Wyliczane przy starcie sesji.")]
+    public int logStride = 5;
 
     private List<DTStepData> buffer = new List<DTStepData>();
-    private float timer = 0f;
+    private int fixedStepCounter = 0;
     private int stepCounter = 0;
     private int scanSectorsThisChunk = 0;
 
@@ -96,13 +101,23 @@ public class DTDataLogger : MonoBehaviour
         return nextId;
     }
 
+    private int ComputeStride()
+    {
+        int stride = Mathf.Max(1, Mathf.RoundToInt(logIntervalSeconds / Time.fixedDeltaTime));
+        float actual = stride * Time.fixedDeltaTime;
+        if (Mathf.Abs(actual - logIntervalSeconds) > 1e-4f)
+            Debug.LogWarning($"[DTDataLogger] logIntervalSeconds = {logIntervalSeconds} nie jest "
+                + $"wielokrotnoscia Time.fixedDeltaTime = {Time.fixedDeltaTime}. Faktyczny odstep "
+                + $"to {actual:F4} s ({1f / actual:F2} Hz). Uzgodnij to z DECIMATE i "
+                + "rewardTickInterval w DTInference, inaczej skala czasu w danych i w inferencji "
+                + "sie rozjedzie.", this);
+        return stride;
+    }
+
     void FixedUpdate()
     {
         if (!isRecording) return;
-
-        timer += Time.fixedDeltaTime;
-        if (timer < logIntervalSeconds) return;
-        timer = 0f;
+        if (fixedStepCounter++ % logStride != 0) return;
 
         LogStep();
 
@@ -174,15 +189,18 @@ public class DTDataLogger : MonoBehaviour
             scanSectorsThisChunk = tofScanBuffer.SectorCount;
         }
 
+        logStride = ComputeStride();
+
         buffer.Clear();
         stepCounter = 0;
-        timer = 0f;
+        fixedStepCounter = 0;
         stepsInCurrentChunk = 0;
         isRecording = true;
 
         if (autoExplorer != null) autoExplorer.StartExploring();
 
         Debug.Log($"[DTDataLogger] Start sesji (epizod {currentEpisodeId}), "
+                + $"co {logStride} krokow fizyki = {1f / (logStride * Time.fixedDeltaTime):F2} Hz, "
                 + $"auto-chunk co {autoEndAfterSteps} krokow, sektorow skanu: {scanSectorsThisChunk}");
     }
 
@@ -194,6 +212,7 @@ public class DTDataLogger : MonoBehaviour
 
         buffer.Clear();
         stepCounter = 0;
+        fixedStepCounter = 0;
         stepsInCurrentChunk = 0;
     }
 
@@ -218,8 +237,8 @@ public class DTDataLogger : MonoBehaviour
 
         buffer.Clear();
         stepCounter = 0;
+        fixedStepCounter = 0;
         stepsInCurrentChunk = 0;
-        timer = 0f;
     }
 
     public void EndEpisode(bool discard = false)

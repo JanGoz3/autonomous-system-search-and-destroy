@@ -8,8 +8,8 @@ from models.DecisionTransformer.decision_transformer import DecisionTransformer
 
 torch.backends.mha.set_fastpath_enabled(False)
 
-DATASET_FILE = "dt_dataset_pos1_scan1p_nocmd.pkl"
-CHECKPOINT_FILE = "dt_checkpoint.pt"
+DATASET_FILE = "dt_dataset_pos_v21_scan1p_nocmd.pkl"
+CHECKPOINT_FILE = "dt_checkpoint_v2.pt"
 
 CONTEXT_LENGTH = 20
 HIDDEN_SIZE = 128
@@ -20,10 +20,10 @@ DROPOUT = 0.1
 BATCH_SIZE = 32
 LEARNING_RATE = 1e-4
 WEIGHT_DECAY = 1e-4
-GRAD_NORM_CLIP = 0.25
+GRAD_NORM_CLIP = 1.0 #wczesniej 0.25
 WARMUP_ITERS = 200
 
-NUM_TRAIN_ITERS = 3000
+NUM_TRAIN_ITERS = 10000 #wczesniej 3000
 LOG_EVERY = 100
 VAL_EVERY = 100
 VAL_BATCHES = 8
@@ -147,7 +147,7 @@ def train_once(split_seed=SPLIT_SEED, num_iters=NUM_TRAIN_ITERS, verbose=True,
     groups = sorted({t.get("group", t["source_file"]) for t in trajectories})
     rng_split = np.random.RandomState(split_seed)
     gidx = rng_split.permutation(len(groups))
-    n_val = min(NUM_HELDOUT_EPISODES, max(1, len(groups) // 8))
+    n_val = min(NUM_HELDOUT_EPISODES, max(2, len(groups) // 8))
     held_out = sorted(groups[i] for i in gidx[:n_val])
     hset = set(held_out)
     val_traj = [t for t in trajectories if t.get("group", t["source_file"]) in hset]

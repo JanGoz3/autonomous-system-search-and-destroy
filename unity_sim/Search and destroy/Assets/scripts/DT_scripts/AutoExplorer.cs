@@ -1,22 +1,6 @@
 using UnityEngine;
 using UnityEngine.AI;
 
-/// <summary>
-/// Pure pursuit po recznie wyznaczonej trasie CoverageRoute.
-///
-/// Zastepuje wersje z losowymi punktami B i wersje frontierowa. Roznica jest
-/// zasadnicza: trasa jest DETERMINISTYCZNA, wiec etykieta dla DT staje sie
-/// funkcja wylacznie tego, co model ma w stanie - pozycji i yaw. Przy losowym
-/// punkcie B ten sam stan mial rozne poprawne odpowiedzi zaleznie od tego, co
-/// akurat wylosowalo, i to bylo zrodlem rozrzutu 50 st u najblizszych sasiadow.
-///
-/// ExpertLocalWaypoint to sygnal planera i to jest przyszla ETYKIETA dla DT -
-/// zamiast relabelowac z przyszlej pozycji auta (czyli z tego, co udalo sie
-/// zrobic driverowi), logujemy to, co ekspert kazal zrobic.
-///
-/// Zachowany interfejs StartExploring/StopExploring, wiec DTDataLogger
-/// i CoverageBenchmark dzialaja bez zmian.
-/// </summary>
 public class AutoExplorer : MonoBehaviour
 {
     [Header("References")]
@@ -26,6 +10,8 @@ public class AutoExplorer : MonoBehaviour
     public Transform target;
     [Tooltip("Opcjonalne. Jesli podpiete, zaklinowanie KONCZY epizod (logger zapisuje fragment albo odrzuca go, gdy za krotki) i dopiero potem auto jest przenoszone. Bez tego respawn tworzylby w danych falszywa 'teleportacje' w srodku trajektorii.")]
     public DTDataLogger dataLogger;
+    [Tooltip("Opcjonalne, ale ZALECANE. Bufor ToF indeksuje sektory yawem WZGLEDEM AUTA i trzyma pomiary przez maxMeasurementAgeSeconds. Po teleportacji te pomiary opisuja poprzednie miejsce na mapie - nie sa 'stare', tylko FALSZYWE. Bez wyczyszczenia pierwsze kilkadziesiat krokow nowego fragmentu ma profil otoczenia z zupelnie innego punktu piętra.")]
+    public TofScanBuffer tofScanBuffer;
 
     [Header("Pure pursuit")]
     [Tooltip("Jak daleko przed autem trzymac target, mierzone wzdluz trasy. Ustaw rowno z WAYPOINT_DIST w build_dt_dataset.py.")]
@@ -91,7 +77,14 @@ public class AutoExplorer : MonoBehaviour
     public Vector3 ExpertWorldWaypoint => expertWorldWaypointRaw;
     public bool StuckThisFrame { get; private set; }
 
-    // =======================================================================
+
+    void Reset()
+    {
+        carTransform = transform;
+        carRigidbody = GetComponent<Rigidbody>();
+        dataLogger = GetComponent<DTDataLogger>();
+        tofScanBuffer = GetComponentInChildren<TofScanBuffer>(true);
+    }
 
     public void StartExploring()
     {
@@ -107,6 +100,11 @@ public class AutoExplorer : MonoBehaviour
             Debug.LogError("[AutoExplorer] Trasa pusta lub za krotka.");
             return;
         }
+
+        if (tofScanBuffer == null)
+            Debug.LogWarning("[AutoExplorer] Brak referencji TofScanBuffer. Po respawnie bufor "
+                + "nie zostanie wyczyszczony i przez maxMeasurementAgeSeconds bedzie opisywal "
+                + "poprzednie miejsce na mapie. Podepnij bufor w Inspectorze.", this);
 
         if (respawnOnStart) RespawnOnRoute();
         else progressAlongRoute = ProjectGlobally();
@@ -128,15 +126,11 @@ public class AutoExplorer : MonoBehaviour
 
     public void StopExploring() => isExploring = false;
 
-    /// <summary>Przenosi auto na losowy punkt trasy. Daje zroznicowane pozycje
-    /// startowe - przy ciaglym nagrywaniu wszystkie epizody zaczynaly sie tam,
-    /// gdzie skonczyl sie poprzedni.</summary>
     public void RespawnOnRoute()
     {
         float d = Random.Range(0f, routeLength);
         Vector3 pos = route.PointAtDistance(d);
 
-        // kierunek trasy w tym punkcie - jako baza dla orientacji
         Vector3 ahead = route.PointAtDistance(d + 1f);
         Quaternion rot = Quaternion.LookRotation(
             Flat(ahead - pos).sqrMagnitude > 1e-4f ? Flat(ahead - pos) : Vector3.forward,
@@ -154,9 +148,11 @@ public class AutoExplorer : MonoBehaviour
             carRigidbody.angularVelocity = Vector3.zero;
         }
 
+        if (tofScanBuffer != null) tofScanBuffer.Clear();
+
         progressAlongRoute = d;
         stuckAnchor = carTransform.position;
-        lastProjectionPos = carTransform.position;   // respawn omija limit przyrostu
+        lastProjectionPos = carTransform.position;
         stuckTimer = 0f;
         graceTimer = spawnGracePeriod;
     }
@@ -170,12 +166,6 @@ public class AutoExplorer : MonoBehaviour
         UpdateTarget();
     }
 
-    // =======================================================================
-
-    /// <summary>Rzut auta na trase w oknie wokol dotychczasowego postepu.
-    /// Okno wsteczne jest male celowo: bez tego auto w korytarzu biegnacym
-    /// rownolegle do wczesniejszego fragmentu trasy zrzutowaloby sie na tamten
-    /// fragment i pursuit point cofnalby sie za nie.</summary>
     private void UpdateProgress()
     {
         float best = float.MaxValue, bestD = progressAlongRoute;
@@ -190,8 +180,6 @@ public class AutoExplorer : MonoBehaviour
 
         deviationFromRoute = Mathf.Sqrt(best);
 
-        // Zgubilismy trase - szukamy po calej dlugosci. To swiadome odzyskanie,
-        // wiec omija limit przyrostu.
         if (deviationFromRoute > maxDeviation)
         {
             bestD = ProjectGlobally();
@@ -200,9 +188,6 @@ public class AutoExplorer : MonoBehaviour
         }
         else
         {
-            // Postep nie moze wzrosnac bardziej, niz auto faktycznie przejechalo.
-            // Bez tego rzut przeskakuje na rownolegly fragment trasy - tak
-            // "znikala" cala odnoga przy searchForward = 6.
             float travelled = Vector3.Distance(car, Flat(lastProjectionPos));
             bestD = Mathf.Min(bestD, progressAlongRoute + travelled + progressSlack);
             lastProjectionPos = carTransform.position;
@@ -231,9 +216,6 @@ public class AutoExplorer : MonoBehaviour
     {
         Vector3 wp = route.PointAtDistance(progressAlongRoute + lookAheadDistance);
 
-        // ETYKIETA liczy sie ZAWSZE, takze gdy ekspert nie steruje autem.
-        // Dzieki temu DTDataLogger dziala bez zmian w kazdym trybie, a przy
-        // DAggerze ekspert moze byc nauczycielem w tle.
         Vector3 local = Quaternion.Inverse(
             Quaternion.Euler(0f, carTransform.eulerAngles.y, 0f)) * Flat(wp - carTransform.position);
         expertLocalWaypoint = new Vector2(local.x, local.z);
@@ -248,9 +230,6 @@ public class AutoExplorer : MonoBehaviour
         StuckThisFrame = false;
         if (!detectStuck) return;
 
-        // Karencja: tuz po respawnie auto czesto stoi bokiem do trasy i manewruje.
-        // Bez tego kazdy taki manewr konczylby sie kolejnym respawnem i kolejnym
-        // odrzuconym fragmentem - stad 28 odrzuconych na 13 zapisanych.
         if (graceTimer > 0f)
         {
             graceTimer -= Time.deltaTime;
@@ -272,9 +251,6 @@ public class AutoExplorer : MonoBehaviour
 
             if (respawnWhenStuck)
             {
-                // KOLEJNOSC JEST ISTOTNA: najpierw zamykamy epizod, dopiero potem
-                // przenosimy auto. Odwrotnie teleportacja trafilaby do buforu
-                // i relabeling zobaczylby skok o kilkanascie metrow.
                 if (dataLogger != null && dataLogger.isRecording)
                     dataLogger.RestartEpisode($"zaklinowanie na {progressAlongRoute:F1} m trasy");
                 RespawnOnRoute();
@@ -288,7 +264,6 @@ public class AutoExplorer : MonoBehaviour
         stuckAt.Add(d);
         if (stuckAt.Count > 40) stuckAt.RemoveAt(0);
 
-        // histogram co 5 m trasy - pokazuje, czy zaklinowania sa skupione
         int buckets = Mathf.Max(1, Mathf.CeilToInt(routeLength / 5f));
         var counts = new int[buckets];
         foreach (float x in stuckAt)
