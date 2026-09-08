@@ -25,6 +25,10 @@ public class CarAgent : Agent
     public float speedSensitivity = 0.25f;
     public float turretSensitivity = 4f;
 
+    [Header("Shooter Override")]
+    public bool isEngagingTarget = false;
+    public float autoAimPitch = 0f;
+    public float autoAimYaw = 0f;
 
     [HideInInspector]
     public bool hadCollisionThisStep = false;
@@ -33,6 +37,11 @@ public class CarAgent : Agent
     private float curriculumProgress = 0f;
     private float spawnRadius = 2f;
     private float maxSpawnAngle = 45;
+    private float m_AiMotor = 0f;
+    private float m_AiSteering = 0f;
+    private float m_AiCamPitch = 0f;
+    private float m_AiCamYaw = 0f;
+    public float engagementTimer = 0f;
 
     [Header("Training mode")]
     public bool trainingMode = true;
@@ -104,6 +113,7 @@ public class CarAgent : Agent
 
         sensor.AddObservation(relativeTargetPos.x / maxArenaSize);
         sensor.AddObservation(relativeTargetPos.z / maxArenaSize);
+
     }
 
     private void OnCollisionEnter(Collision collision) 
@@ -134,10 +144,10 @@ public class CarAgent : Agent
 
     public override void OnActionReceived(ActionBuffers actions)
     {
-        float aiMotor = Mathf.Clamp(actions.ContinuousActions[0], -1f, 1f);
-        float aiSteering = Mathf.Clamp(actions.ContinuousActions[1], -1f, 1f);
-        float aiCamPitch = Mathf.Clamp(actions.ContinuousActions[2], -1f, 1f);
-        float aiCamYaw = Mathf.Clamp(actions.ContinuousActions[3], -1f, 1f);
+        m_AiMotor = Mathf.Clamp(actions.ContinuousActions[0], -1f, 1f);
+        m_AiSteering = Mathf.Clamp(actions.ContinuousActions[1], -1f, 1f);
+        m_AiCamPitch = Mathf.Clamp(actions.ContinuousActions[2], -1f, 1f);
+        m_AiCamYaw = Mathf.Clamp(actions.ContinuousActions[3], -1f, 1f);
 
         // Rewards
         float currentDistance = Vector3.Distance(transform.position, Target.position);
@@ -150,14 +160,7 @@ public class CarAgent : Agent
             return;
         }
 
-        if (chassis != null)
-        {
-            chassis.SetSpeed(aiMotor);
-            chassis.SetSteering(aiSteering);
-            chassis.SetCameraServos(aiCamPitch, aiCamYaw);
-        }
-
-        float cameraJitter = Mathf.Abs(aiCamPitch) + Mathf.Abs(aiCamYaw);
+        float cameraJitter = Mathf.Abs(m_AiCamPitch) + Mathf.Abs(m_AiCamYaw);
         AddReward(-0.0005f * cameraJitter);
 
         // WALL RECOVERY AND STUCK TIMER #############################
@@ -213,6 +216,38 @@ public class CarAgent : Agent
             previousDistance = currentDistance;
         }
 
+    }
+
+    void FixedUpdate()
+    {
+        float finalMotor = m_AiMotor;
+        float finalSteering = m_AiSteering;
+        float finalPitch = m_AiCamPitch;
+        float finalYaw = m_AiCamYaw;
+
+        if (isEngagingTarget)
+        {
+            engagementTimer = 5f;
+        }
+        else
+        {
+            engagementTimer -= Time.fixedDeltaTime;
+        }
+
+        if (engagementTimer > 0f)
+        {
+            finalSteering = 0f;
+            finalPitch = autoAimPitch; 
+            finalYaw = autoAimYaw;     
+            finalMotor = 0f;   
+        }
+
+        if (chassis != null)
+        {
+            chassis.SetSpeed(finalMotor);
+            chassis.SetSteering(finalSteering);
+            chassis.SetCameraServos(finalPitch, finalYaw);
+        }
     }
 
     public override void Heuristic(in ActionBuffers actionsOut)
