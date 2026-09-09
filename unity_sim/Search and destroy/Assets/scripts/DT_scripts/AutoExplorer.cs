@@ -1,6 +1,7 @@
 using UnityEngine;
 using UnityEngine.AI;
 
+
 public class AutoExplorer : MonoBehaviour
 {
     [Header("References")]
@@ -8,47 +9,56 @@ public class AutoExplorer : MonoBehaviour
     public Transform carTransform;
     public Rigidbody carRigidbody;
     public Transform target;
-    [Tooltip("Opcjonalne. Jesli podpiete, zaklinowanie KONCZY epizod (logger zapisuje fragment albo odrzuca go, gdy za krotki) i dopiero potem auto jest przenoszone. Bez tego respawn tworzylby w danych falszywa 'teleportacje' w srodku trajektorii.")]
+    [Tooltip("Opcjonalne. Jesli podpiete, zaklinowanie KONCZY epizod (logger zapisuje fragment albo odrzuca go, gdy za krotki) i dopiero potem auto jest przenoszone.")]
     public DTDataLogger dataLogger;
-    [Tooltip("Opcjonalne, ale ZALECANE. Bufor ToF indeksuje sektory yawem WZGLEDEM AUTA i trzyma pomiary przez maxMeasurementAgeSeconds. Po teleportacji te pomiary opisuja poprzednie miejsce na mapie - nie sa 'stare', tylko FALSZYWE. Bez wyczyszczenia pierwsze kilkadziesiat krokow nowego fragmentu ma profil otoczenia z zupelnie innego punktu piętra.")]
+    [Tooltip("Opcjonalne, ale ZALECANE. Bufor ToF indeksuje sektory yawem WZGLEDEM AUTA i trzyma pomiary przez maxMeasurementAgeSeconds. Po teleportacji te pomiary opisuja poprzednie miejsce - nie sa 'stare', tylko FALSZYWE.")]
     public TofScanBuffer tofScanBuffer;
 
     [Header("Pure pursuit")]
-    [Tooltip("Jak daleko przed autem trzymac target, mierzone wzdluz trasy. Ustaw rowno z WAYPOINT_DIST w build_dt_dataset.py.")]
+    [Tooltip("Jak daleko przed autem trzymac target, mierzone WZDLUZ SCIEZKI NavMesh. Ustaw rowno z WAYPOINT_DIST w build_dt_dataset.py.")]
     public float lookAheadDistance = 1.5f;
     [Tooltip("Jak daleko do przodu szukac rzutu auta na trase przy kazdej klatce.")]
     public float searchForward = 6f;
     [Tooltip("Ile wstecz. Male, zeby auto nie zrzutowalo sie na wczesniejszy fragment trasy w rownoleglym korytarzu.")]
     public float searchBackward = 1f;
     public float searchStep = 0.2f;
-    [Tooltip("O ile metrow ponad faktycznie przejechany dystans postep moze wzrosnac w jednej klatce. Bez tego ograniczenia rzut przeskakuje na rownolegly fragment trasy (np. tor powrotny odnogi) i cala jej dlugosc jest uznawana za przejechana bez jezdzenia.")]
+    [Tooltip("O ile metrow ponad faktycznie przejechany dystans postep moze wzrosnac w jednej klatce.")]
     public float progressSlack = 0.3f;
     [Tooltip("Powyzej tego odchylenia od trasy szukamy rzutu po CALEJ trasie, nie tylko w oknie.")]
     public float maxDeviation = 4f;
 
+    [Header("Sciezka NavMesh (etykieta)")]
+    [Tooltip("Gdy true, etykieta jest liczona wzdluz sciezki NavMesh - ekspert obchodzi sciany "
+           + "i wskazuje drzwi. Gdy false, wraca stare zachowanie (punkt na trasie w linii "
+           + "prostej). Wylaczaj tylko do porownania ze starym datasetem.")]
+    public bool useNavMeshPath = true;
+    [Tooltip("Co ile sekund przeliczac sciezke. Punkt docelowy w SWIECIE jest stabilny, wiec "
+           + "nie trzeba go liczyc co klatke - konwersja do ukladu auta i tak dzieje sie zawsze. "
+           + "0.05 = 20 Hz, dwa razy czesciej niz logowanie.")]
+    public float pathUpdateInterval = 0.05f;
+    [Tooltip("Promien, w jakim szukamy najblizszego punktu NavMesh dla pozycji auta i celu.")]
+    public float navSampleRadius = 1.5f;
+
     [Header("Tryb pracy")]
     [Tooltip("Gdy false, AutoExplorer LICZY expertLocalWaypoint, ale NIE rusza obiektu target. "
-           + "Uzywane przez CoverageBenchmark (polityka ExpertFrozen), zeby ekspert dzialal przez "
-           + "TEN SAM interfejs co DT - jeden zamrozony waypoint na decyzje zamiast przeliczania "
-           + "co klatke. Bez tego porownanie DT vs AutoExplorer mierzy warstwe aktuacji, a nie "
-           + "polityke. Przydatne rowniez jako nauczyciel w tle przy DAggerze.")]
+           + "Uzywane przez CoverageBenchmark (polityka ExpertFrozen) i przy DAggerze.")]
     public bool driveTarget = true;
 
     [Header("Spawn")]
-    [Tooltip("Start w losowym punkcie trasy - daje zroznicowane pozycje poczatkowe, ktorych ciagle nagrywanie nie dawalo.")]
+    [Tooltip("Start w losowym punkcie trasy - daje zroznicowane pozycje poczatkowe.")]
     public bool respawnOnStart = true;
-    [Tooltip("Losowe odchylenie od kierunku trasy przy spawnie, w stopniach (+/-). 180 = pelna losowosc. Przy pelnej losowosci co drugi respawn zaczyna sie od zawracania, ktore detektor bierze za zaklinowanie - stad domyslne 90.")]
-    public float spawnYawJitter = 90f;
+    [Tooltip("Losowe odchylenie od kierunku trasy przy spawnie, w stopniach (+/-). Przy duzych wartosciach co drugi respawn zaczyna sie od zawracania, ktore detektor bierze za zaklinowanie.")]
+    public float spawnYawJitter = 50f;
     public float spawnHeightOffset = 0.2f;
 
     [Header("Utkniecie")]
     public bool detectStuck = true;
-    [Tooltip("Przez ile sekund auto musi nie ruszyc sie o stuckDistanceThreshold, zeby uznac je za zaklinowane. Za male wartosci lapia normalne manewry zawracania.")]
+    [Tooltip("Przez ile sekund auto musi nie ruszyc sie o stuckDistanceThreshold, zeby uznac je za zaklinowane.")]
     public float stuckCheckWindow = 6f;
     public float stuckDistanceThreshold = 0.5f;
-    [Tooltip("Karencja po respawnie - przez tyle sekund nie sprawdzamy zaklinowania. Auto ustawione bokiem do trasy potrzebuje czasu na manewr, a bez karencji zostaloby natychmiast uznane za zaklinowane i przeniesione ponownie.")]
+    [Tooltip("Karencja po respawnie - przez tyle sekund nie sprawdzamy zaklinowania.")]
     public float spawnGracePeriod = 5f;
-    [Tooltip("Po wykryciu zaklinowania: zakoncz epizod w loggerze (jesli podpiety) i przenies auto w losowy punkt trasy. Bezpieczne TYLKO z podpietym dataLogger - inaczej powstaje teleportacja w srodku trajektorii.")]
+    [Tooltip("Po wykryciu zaklinowania: zakoncz epizod w loggerze i przenies auto w losowy punkt trasy.")]
     public bool respawnWhenStuck = true;
 
     [Header("Runtime (read-only)")]
@@ -57,14 +67,22 @@ public class AutoExplorer : MonoBehaviour
     public float deviationFromRoute = 0f;
     public int lapsCompleted = 0;
     public int stuckEvents = 0;
-    [Tooltip("Postep na trasie przy kolejnych zaklinowaniach. Skupienie wartosci = konkretne zle miejsce na trasie. Rozrzut = problem z driverem.")]
+    [Tooltip("Postep na trasie przy kolejnych zaklinowaniach. Skupienie wartosci = konkretne zle miejsce na trasie.")]
     public string stuckHotspots = "";
     [Tooltip("ETYKIETA dla DT: wektor do pursuit pointa w ukladzie auta. x = w prawo, z = do przodu, w metrach.")]
     public Vector2 expertLocalWaypoint;
-    [Tooltip("Pursuit point w ukladzie SWIATA. Liczony zawsze, niezaleznie od driveTarget - "
-           + "wlasciwosc ExpertWorldWaypoint nie moze czytac target.position, bo przy "
-           + "driveTarget = false celem steruje kto inny (DT albo benchmark).")]
+    [Tooltip("Pursuit point w ukladzie SWIATA. Liczony zawsze, niezaleznie od driveTarget.")]
     public Vector3 expertWorldWaypointRaw;
+    [Tooltip("Czy udalo sie wyznaczyc PELNA sciezke NavMesh do punktu na trasie. Gdy false, "
+           + "ekspert nie wie, jak tam dojechac, i etykieta jest fallbackiem w linii prostej - "
+           + "takie klatki warto odfiltrowac z lossu (kolumna expert_valid).")]
+    public bool expertPathValid = false;
+    [Tooltip("Dlugosc sciezki NavMesh do punktu na trasie. Duzo wieksza od odleglosci w linii "
+           + "prostej = auto jest po drugiej stronie sciany i musi obchodzic.")]
+    public float pathLengthToGoal = 0f;
+    [Tooltip("Udzial klatek, w ktorych sciezka byla niepelna. Wysokie wartosci = trasa wychodzi "
+           + "poza NavMesh albo auto ciagle laduje w miejscach bez dojazdu.")]
+    public float pathFailRate = 0f;
 
     private float stuckTimer = 0f;
     private float graceTimer = 0f;
@@ -73,6 +91,10 @@ public class AutoExplorer : MonoBehaviour
     private Vector3 lastProjectionPos;
     private readonly System.Collections.Generic.List<float> stuckAt =
         new System.Collections.Generic.List<float>();
+
+    private NavMeshPath navPath;
+    private float pathTimer = 0f;
+    private int pathCalls = 0, pathFails = 0;
 
     public Vector3 ExpertWorldWaypoint => expertWorldWaypointRaw;
     public bool StuckThisFrame { get; private set; }
@@ -84,6 +106,11 @@ public class AutoExplorer : MonoBehaviour
         carRigidbody = GetComponent<Rigidbody>();
         dataLogger = GetComponent<DTDataLogger>();
         tofScanBuffer = GetComponentInChildren<TofScanBuffer>(true);
+    }
+
+    void Awake()
+    {
+        navPath = new NavMeshPath();
     }
 
     public void StartExploring()
@@ -101,10 +128,10 @@ public class AutoExplorer : MonoBehaviour
             return;
         }
 
+        if (navPath == null) navPath = new NavMeshPath();
         if (tofScanBuffer == null)
             Debug.LogWarning("[AutoExplorer] Brak referencji TofScanBuffer. Po respawnie bufor "
-                + "nie zostanie wyczyszczony i przez maxMeasurementAgeSeconds bedzie opisywal "
-                + "poprzednie miejsce na mapie. Podepnij bufor w Inspectorze.", this);
+                + "nie zostanie wyczyszczony i bedzie opisywal poprzednie miejsce.", this);
 
         if (respawnOnStart) RespawnOnRoute();
         else progressAlongRoute = ProjectGlobally();
@@ -117,14 +144,25 @@ public class AutoExplorer : MonoBehaviour
         stuckAt.Clear();
         stuckHotspots = "";
         lapsCompleted = 0;
+        pathCalls = 0;
+        pathFails = 0;
+        pathFailRate = 0f;
+        pathTimer = 0f;
         isExploring = true;
 
+        RecomputeWorldWaypoint();
         UpdateTarget();
-        Debug.Log($"[AutoExplorer] Start. Trasa {routeLength:F1} m, "
-                + $"postep {progressAlongRoute:F1} m");
+        Debug.Log($"[AutoExplorer] Start. Trasa {routeLength:F1} m, postep {progressAlongRoute:F1} m, "
+                + $"etykieta {(useNavMeshPath ? "WZDLUZ SCIEZKI NavMesh" : "w linii prostej")}");
     }
 
-    public void StopExploring() => isExploring = false;
+    public void StopExploring()
+    {
+        isExploring = false;
+        if (pathCalls > 0)
+            Debug.Log($"[AutoExplorer] Sciezka NavMesh: {pathFails}/{pathCalls} nieudanych "
+                    + $"({100f * pathFails / pathCalls:F1}%)");
+    }
 
     public void RespawnOnRoute()
     {
@@ -155,6 +193,7 @@ public class AutoExplorer : MonoBehaviour
         lastProjectionPos = carTransform.position;
         stuckTimer = 0f;
         graceTimer = spawnGracePeriod;
+        pathTimer = 0f;
     }
 
     void Update()
@@ -163,6 +202,14 @@ public class AutoExplorer : MonoBehaviour
 
         UpdateProgress();
         CheckStuck();
+
+        pathTimer -= Time.deltaTime;
+        if (pathTimer <= 0f)
+        {
+            pathTimer = Mathf.Max(0.01f, pathUpdateInterval);
+            RecomputeWorldWaypoint();
+        }
+
         UpdateTarget();
     }
 
@@ -212,17 +259,72 @@ public class AutoExplorer : MonoBehaviour
         return bestD;
     }
 
+    private void RecomputeWorldWaypoint()
+    {
+
+        Vector3 goal = route.PointAtDistance(progressAlongRoute + lookAheadDistance);
+
+        if (!useNavMeshPath)
+        {
+            expertWorldWaypointRaw = goal;
+            expertPathValid = true;
+            pathLengthToGoal = Vector3.Distance(Flat(carTransform.position), Flat(goal));
+            return;
+        }
+
+        pathCalls++;
+        expertPathValid = false;
+        Vector3 result = goal;
+
+        if (NavMesh.SamplePosition(carTransform.position, out NavMeshHit fromHit,
+                                   navSampleRadius, NavMesh.AllAreas)
+            && NavMesh.SamplePosition(goal, out NavMeshHit goalHit,
+                                      navSampleRadius, NavMesh.AllAreas)
+            && NavMesh.CalculatePath(fromHit.position, goalHit.position,
+                                     NavMesh.AllAreas, navPath)
+            && navPath.status == NavMeshPathStatus.PathComplete
+            && navPath.corners.Length >= 2)
+        {
+            expertPathValid = true;
+            result = PointAlongPath(navPath.corners, lookAheadDistance, out pathLengthToGoal);
+        }
+        else
+        {
+            pathFails++;
+            pathLengthToGoal = Vector3.Distance(Flat(carTransform.position), Flat(goal));
+        }
+
+        pathFailRate = pathCalls > 0 ? (float)pathFails / pathCalls : 0f;
+        expertWorldWaypointRaw = result;
+    }
+
+    private static Vector3 PointAlongPath(Vector3[] corners, float dist, out float totalLength)
+    {
+        totalLength = 0f;
+        for (int i = 0; i < corners.Length - 1; i++)
+            totalLength += Vector3.Distance(Flat(corners[i]), Flat(corners[i + 1]));
+
+        float remaining = dist;
+        for (int i = 0; i < corners.Length - 1; i++)
+        {
+            float seg = Vector3.Distance(Flat(corners[i]), Flat(corners[i + 1]));
+            if (seg < 1e-4f) continue;
+            if (remaining <= seg)
+                return Vector3.Lerp(corners[i], corners[i + 1], remaining / seg);
+            remaining -= seg;
+        }
+        return corners[corners.Length - 1];
+    }
+
     private void UpdateTarget()
     {
-        Vector3 wp = route.PointAtDistance(progressAlongRoute + lookAheadDistance);
-
         Vector3 local = Quaternion.Inverse(
-            Quaternion.Euler(0f, carTransform.eulerAngles.y, 0f)) * Flat(wp - carTransform.position);
+            Quaternion.Euler(0f, carTransform.eulerAngles.y, 0f))
+            * Flat(expertWorldWaypointRaw - carTransform.position);
         expertLocalWaypoint = new Vector2(local.x, local.z);
-        expertWorldWaypointRaw = wp;
 
         if (driveTarget)
-            target.position = wp + new Vector3(0, 0.15f, 0);
+            target.position = expertWorldWaypointRaw + new Vector3(0, 0.15f, 0);
     }
 
     private void CheckStuck()
@@ -251,6 +353,8 @@ public class AutoExplorer : MonoBehaviour
 
             if (respawnWhenStuck)
             {
+                // KOLEJNOSC JEST ISTOTNA: najpierw zamykamy epizod, dopiero potem
+                // przenosimy auto - inaczej teleportacja trafilaby do buforu.
                 if (dataLogger != null && dataLogger.isRecording)
                     dataLogger.RestartEpisode($"zaklinowanie na {progressAlongRoute:F1} m trasy");
                 RespawnOnRoute();
@@ -281,11 +385,20 @@ public class AutoExplorer : MonoBehaviour
     {
         if (!isExploring || carTransform == null || target == null) return;
 
-        Gizmos.color = Color.green;                       // pursuit point EKSPERTA
+        if (useNavMeshPath && navPath != null && navPath.corners != null
+            && navPath.corners.Length >= 2)
+        {
+            Gizmos.color = expertPathValid ? Color.white : Color.red;
+            for (int i = 0; i < navPath.corners.Length - 1; i++)
+                Gizmos.DrawLine(navPath.corners[i] + Vector3.up * 0.05f,
+                                navPath.corners[i + 1] + Vector3.up * 0.05f);
+        }
+
+        Gizmos.color = expertPathValid ? Color.green : Color.red;   // pursuit point EKSPERTA
         Gizmos.DrawWireSphere(expertWorldWaypointRaw + Vector3.up * 0.1f, 0.3f);
         Gizmos.DrawLine(carTransform.position, expertWorldWaypointRaw);
 
-        if (!driveTarget && target != null)                // aktywny cel kogos innego
+        if (!driveTarget && target != null)
         {
             Gizmos.color = Color.yellow;
             Gizmos.DrawWireCube(target.position + Vector3.up * 0.1f, Vector3.one * 0.3f);
