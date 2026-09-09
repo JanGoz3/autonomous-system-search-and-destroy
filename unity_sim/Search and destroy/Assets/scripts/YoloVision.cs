@@ -10,23 +10,28 @@ public class YoloVision : MonoBehaviour
     public Camera yoloCamera;
     private Worker m_Worker;
     private Tensor<float> m_InputTensor;
-    private const int InferenceInterval = 5; // Run every nth physics tick
+    private const int InferenceInterval = 5; // Run every nth decision requester request
     private int m_StepCounter = 0;
     private const int MaxTrackedObjects = 3;
     private const int FeaturesPerObject = 9; // 5 spatial + 4 one-hot classes.
     private readonly float[] m_LatestYoloState = new float[MaxTrackedObjects * FeaturesPerObject];
-
     private int m_StaggerOffset;
-    private const int CLASS_TARGET = 0;
-    private const int CLASS_PERSON = 1;
-    private const int CLASS_CHAIR = 2;
-    private const int CLASS_DOOR = 3;
+    public const int CLASS_TARGET = 3;
+    public const int CLASS_PERSON = 2;
+    public const int CLASS_CHAIR = 0;
+    public const int CLASS_DOOR = 1;
 
-    private struct Detection {
+    private struct DetectionNormalized {
         public float x, y, w, h, conf, classId;
         public float area => w * h;
     }
-    private readonly List<Detection> m_Detections = new List<Detection>(300);
+    private readonly List<DetectionNormalized> m_DetectionsNormalized = new List<DetectionNormalized>(300);
+
+    public struct DetectionRaw
+    {
+        public float xMin, yMin, xMax, yMax, conf, classId;
+    }
+    public readonly List<DetectionRaw> detectionRaw = new List<DetectionRaw>(300);
 
     void Start() 
     {
@@ -64,7 +69,8 @@ public class YoloVision : MonoBehaviour
 
         System.Array.Clear(m_LatestYoloState, 0, m_LatestYoloState.Length);
 
-        m_Detections.Clear();
+        m_DetectionsNormalized.Clear();
+        detectionRaw.Clear();
 
         int numBoxes = 300;
         int features = 6;
@@ -75,8 +81,8 @@ public class YoloVision : MonoBehaviour
             float conf = rawOutput[i * features + 4];
 
             if (conf > confThreshold) 
-            {
-                m_Detections.Add(new Detection 
+            {   
+                m_DetectionsNormalized.Add(new DetectionNormalized 
                 {
                     // center normalized [-1.0, 1.0], where 0 is dead center
                     // this supposedly makes the network converge faster
@@ -89,17 +95,26 @@ public class YoloVision : MonoBehaviour
                     conf = conf,
                     classId = rawOutput[i * features + 5] 
                 });
+                detectionRaw.Add(new DetectionRaw
+                {
+                    xMin = rawOutput[i * features + 0], 
+                    yMin = rawOutput[i * features + 1], 
+                    xMax = rawOutput[i * features + 2], 
+                    yMax = rawOutput[i * features + 3],
+                    conf = conf,
+                    classId = rawOutput[i * features + 5]
+                });
             }
         }
 
         // sort by largest area first (closest/most prominent hazards)
-        m_Detections.Sort((a,b) => b.area.CompareTo(a.area));
+        m_DetectionsNormalized.Sort((a,b) => b.area.CompareTo(a.area));
 
-        int count = Mathf.Min(m_Detections.Count, MaxTrackedObjects);
+        int count = Mathf.Min(m_DetectionsNormalized.Count, MaxTrackedObjects);
         for (int i = 0; i < count; i++) 
         {
             int offset = i * FeaturesPerObject;
-            var d = m_Detections[i];
+            var d = m_DetectionsNormalized[i];
 
             // Spatial & Confidence
             m_LatestYoloState[offset + 0] = d.x;    
@@ -110,10 +125,10 @@ public class YoloVision : MonoBehaviour
 
             // One-Hot Class Flags
             int id = Mathf.RoundToInt(d.classId);
-            m_LatestYoloState[offset + 5] = (id == CLASS_TARGET) ? 1f : 0f;
-            m_LatestYoloState[offset + 6] = (id == CLASS_PERSON) ? 1f : 0f;
-            m_LatestYoloState[offset + 7] = (id == CLASS_CHAIR)  ? 1f : 0f;
-            m_LatestYoloState[offset + 8] = (id == CLASS_DOOR)   ? 1f : 0f;
+            m_LatestYoloState[offset + 5] = (id == CLASS_CHAIR) ? 1f : 0f;
+            m_LatestYoloState[offset + 6] = (id == CLASS_DOOR) ? 1f : 0f;
+            m_LatestYoloState[offset + 7] = (id == CLASS_PERSON)  ? 1f : 0f;
+            m_LatestYoloState[offset + 8] = (id == CLASS_TARGET)   ? 1f : 0f;
         }
     }       
 
