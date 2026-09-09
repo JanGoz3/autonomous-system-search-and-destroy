@@ -9,14 +9,14 @@ import pandas as pd
 
 DATA_DIR = r"C:\Users\Admin\AppData\LocalLow\DefaultCompany\Search and destroy\DTDataset"
 
-INCLUDE_POSITION = True
+INCLUDE_POSITION = False
 INCLUDE_SCAN = True
 INCLUDE_SCAN_PITCH = True
 EXCLUDE_POLICY_OUTPUTS = True
 POLICY_OUTPUT_COLUMNS = ("telem_0", "telem_1", "telem_2", "telem_3")
 SCAN_PITCH_SCALE_DEG = 45.0
 
-OUTPUT_FILE = (f"dt_dataset_pos_v2{int(INCLUDE_POSITION)}"
+OUTPUT_FILE = (f"dt_dataset_pos_navpath{int(INCLUDE_POSITION)}"
                f"_scan{int(INCLUDE_SCAN)}"
                f"{'p' if INCLUDE_SCAN and INCLUDE_SCAN_PITCH else ''}"
                f"{'_nocmd' if EXCLUDE_POLICY_OUTPUTS else ''}.pkl")
@@ -292,7 +292,7 @@ def report_scan_health(trajectories, state_columns):
 
 
 def main():
-    csv_files = sorted(Path(DATA_DIR).glob("episode_*.csv"))
+    csv_files = sorted(Path(DATA_DIR).glob("*episode_*.csv"))
     print(f"Znaleziono {len(csv_files)} plikow CSV")
     if not csv_files:
         print("Sprawdz DATA_DIR.")

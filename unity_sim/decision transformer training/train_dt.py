@@ -8,8 +8,8 @@ from models.DecisionTransformer.decision_transformer import DecisionTransformer
 
 torch.backends.mha.set_fastpath_enabled(False)
 
-DATASET_FILE = "dt_dataset_pos_v21_scan1p_nocmd.pkl"
-CHECKPOINT_FILE = "dt_checkpoint_v2.pt"
+DATASET_FILE = "dt_dataset_pos_navpath1_scan1p_nocmd.pkl"
+CHECKPOINT_FILE = "dt_checkpoint_v3_navpath_pos1.pt"
 
 CONTEXT_LENGTH = 20
 HIDDEN_SIZE = 128
