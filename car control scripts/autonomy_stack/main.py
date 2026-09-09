@@ -15,7 +15,6 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DRIVER_MODEL_PATH = os.path.join(BASE_DIR, "DriverNet.onnx")
 YOLO_MODEL_PATH = os.path.join(BASE_DIR, "yolo_ours_v4.onnx")
 
-
 STACKED_VECTORS = 3
 STATE_SPACE = 40
 MAX_ARENA_SIZE = 20.0  
@@ -23,10 +22,25 @@ CONTROL_HZ = 20.0
 MAX_EXEC_TIME = 2.0
 ACCEL_FACTOR = 0.15
 
+# Matches YoloVision.cs & Shooter.cs
 CLASS_TARGET = 3
 ENGAGE_WIDTH_THRESHOLD = 20.0  # pixels
 TRACKING_SENSITIVITY = 1.0
 ENGAGEMENT_TIMEOUT = 5.0
+
+# OpenCV colors are BGR
+CLASS_COLORS = {
+    0: (0, 255, 255),   # Chair: Yellow
+    1: (255, 0, 255),   # Door: Magenta
+    2: (255, 0, 0),     # Person: Blue
+    3: (0, 0, 255),     # Target: Red
+}
+CLASS_NAMES = {
+    0: "Chair",
+    1: "Door",
+    2: "Person",
+    3: "Target",
+}
 
 current_target_x = 0.0
 current_target_z = 0.0  
@@ -62,6 +76,41 @@ def terminal_input_thread():
         except EOFError:
             break
 
+def draw_debug_overlay(debug_frame, detections, is_engaging, engagement_timer, best_target):
+    """Draws detections, crosshairs, and tracking status on a 320x320 image."""
+    # Draw center crosshairs (160, 160)
+    cv2.drawMarker(debug_frame, (160, 160), (200, 200, 200), cv2.MARKER_CROSS, 20, 1)
+
+    for det in detections:
+        cid = det['class_id']
+        conf = det['conf']
+        x = int(det['x'] - det['w'] / 2)
+        y = int(det['y'] - det['h'] / 2)
+        w = int(det['w'])
+        h = int(det['h'])
+
+        color = CLASS_COLORS.get(cid, (255, 255, 255))
+        label = CLASS_NAMES.get(cid, f"ID:{cid}")
+
+        # Highlight currently locked target with a thicker box
+        thickness = 3 if (best_target is not None and det is best_target) else 1
+        cv2.rectangle(debug_frame, (x, y), (x + w, y + h), color, thickness)
+
+        caption = f"{label} {conf:.2f}"
+        cv2.putText(debug_frame, caption, (x, max(15, y - 5)), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1, cv2.LINE_AA)
+
+    # Status banner at the top
+    if engagement_timer > 0.0:
+        status_text = f"LOCKED (Timer: {engagement_timer:.1f}s)"
+        status_color = (0, 0, 255)
+    else:
+        status_text = "PATROLLING"
+        status_color = (0, 255, 0)
+
+    cv2.putText(debug_frame, status_text, (10, 25), 
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, status_color, 2, cv2.LINE_AA)
+
 def main():
     global is_running, current_target_x, current_target_z, last_command_time
     
@@ -82,6 +131,8 @@ def main():
     
     if not cap.isOpened():
         raise RuntimeError("Failed to open CSI physical camera.")
+
+    cv2.namedWindow("Target Tracking Debug", cv2.WINDOW_NORMAL)
 
     frame_buffer = deque([np.zeros(STATE_SPACE, dtype=np.float32) for _ in range(STACKED_VECTORS)], maxlen=STACKED_VECTORS)
     loop_interval = 1.0 / CONTROL_HZ
@@ -108,6 +159,9 @@ def main():
 
             ret, frame = cap.read()
             if not ret: continue
+
+            # Pre-resize frame for debug display to match YOLO's 320x320 coordinate space
+            debug_frame = cv2.resize(frame, (320, 320))
 
             yolo_obs, detections = yolo_processor.process_frame(frame)
             target_found = False
@@ -142,9 +196,15 @@ def main():
                 is_engaging_target = False
                 engagement_timer = max(0.0, engagement_timer - dt)
 
+            # Draw Unity-like debug overlay and display
+            draw_debug_overlay(debug_frame, detections, is_engaging_target, engagement_timer, best_target)
+            cv2.imshow("Target Tracking Debug", debug_frame)
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                is_running = False
+                break
 
+            # Odometry & Navigation
             raw_telemetry = hardware.get_telemetry()
-            
             max_speed_mps = 2.0 
             target_speed = raw_telemetry[0] * max_speed_mps  
             
@@ -168,7 +228,6 @@ def main():
             norm_telemetry[7] = np.clip(raw_telemetry[7] / 2000.0, -1.0, 1.0)
             norm_telemetry[8] = np.clip(raw_telemetry[8] / 2000.0, -1.0, 1.0)
             norm_telemetry[9] = np.clip(raw_telemetry[9] / 2000.0, -1.0, 1.0)
-            
             norm_telemetry[10] = np.clip(raw_telemetry[10] / 3000.0, 0.0, 1.0)
 
             norm_target_x = float(current_target_x / MAX_ARENA_SIZE)
@@ -213,6 +272,7 @@ def main():
         print("Releasing actuators and camera safely.")
         hardware.close()
         cap.release()
+        cv2.destroyAllWindows()
         input_thread.join(timeout=1.0) 
 
 if __name__ == "__main__":
