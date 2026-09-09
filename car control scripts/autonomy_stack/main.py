@@ -254,6 +254,15 @@ def main():
             current_cam_pitch = cam_pitch
             current_cam_yaw = cam_yaw
 
+            distance_to_target = np.sqrt(current_target_x**2 + current_target_z**2)
+            ARRIVAL_TOLERANCE = 0.20
+            
+            if distance_to_target < ARRIVAL_TOLERANCE or current_target_z <= 0.0:
+                current_target_x = 0.0
+                current_target_z = 0.0
+                throttle = 0.0
+                steering = 0.0
+
             # 2.0-Second Safety Kill Switch
             if current_time - last_command_time > MAX_EXEC_TIME:
                 throttle = 0.0
