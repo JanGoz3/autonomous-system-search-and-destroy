@@ -109,4 +109,4 @@ class YoloProcessor:
             else:
                 yolo_array.extend([0.0] * 9)
 
-        return yolo_array
+        return yolo_array, final_detections

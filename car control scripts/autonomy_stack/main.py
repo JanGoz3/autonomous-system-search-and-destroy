@@ -23,6 +23,11 @@ CONTROL_HZ = 20.0
 MAX_EXEC_TIME = 2.0
 ACCEL_FACTOR = 0.15
 
+CLASS_TARGET = 3
+ENGAGE_WIDTH_THRESHOLD = 20.0  # pixels
+TRACKING_SENSITIVITY = 1.0
+ENGAGEMENT_TIMEOUT = 5.0
+
 current_target_x = 0.0
 current_target_z = 0.0  
 last_command_time = 0.0  
@@ -88,6 +93,13 @@ def main():
     last_command_time = time.perf_counter()
     estimated_speed = 0.0
 
+    is_engaging_target = False
+    engagement_timer = 0.0
+    auto_aim_pitch = 0.0
+    auto_aim_yaw = 0.0
+    current_cam_pitch = 0.0
+    current_cam_yaw = 0.0
+
     try:
         while is_running:
             current_time = time.perf_counter()
@@ -97,7 +109,40 @@ def main():
             ret, frame = cap.read()
             if not ret: continue
 
-            yolo_obs = yolo_processor.process_frame(frame)
+            yolo_obs, detections = yolo_processor.process_frame(frame)
+            target_found = False
+            best_target = None
+            largest_area = 0.0
+
+            for det in detections:
+                if det['class_id'] == CLASS_TARGET:
+                    width = det['w']
+                    area = det['area']
+                    if width >= ENGAGE_WIDTH_THRESHOLD and area > largest_area:
+                        target_found = True
+                        best_target = det
+                        largest_area = area
+
+            if target_found:
+                if not is_engaging_target:
+                    auto_aim_pitch = current_cam_pitch
+                    auto_aim_yaw = current_cam_yaw
+                    is_engaging_target = True
+
+                engagement_timer = ENGAGEMENT_TIMEOUT
+
+                error_x = (best_target['x'] - 160.0) / 160.0
+                error_y = (best_target['y'] - 160.0) / 160.0
+
+                auto_aim_yaw += error_x * TRACKING_SENSITIVITY * dt
+                auto_aim_pitch -= error_y * TRACKING_SENSITIVITY * dt
+                auto_aim_yaw = float(np.clip(auto_aim_yaw, -1.0, 1.0))
+                auto_aim_pitch = float(np.clip(auto_aim_pitch, -1.0, 1.0))
+            else:
+                is_engaging_target = False
+                engagement_timer = max(0.0, engagement_timer - dt)
+
+
             raw_telemetry = hardware.get_telemetry()
             
             max_speed_mps = 2.0 
@@ -134,7 +179,21 @@ def main():
             frame_buffer.append(current_obs)
             stacked_obs = np.concatenate(list(frame_buffer), axis=0)
 
-            throttle, steering, cam_pitch, cam_yaw = driver_agent.get_action(stacked_obs)
+            agent_throttle, agent_steering, agent_pitch, agent_yaw = driver_agent.get_action(stacked_obs)
+
+            if engagement_timer > 0.0:
+                throttle = 0.0
+                steering = 0.0
+                cam_pitch = auto_aim_pitch
+                cam_yaw = auto_aim_yaw
+            else:
+                throttle = agent_throttle
+                steering = agent_steering
+                cam_pitch = agent_pitch
+                cam_yaw = agent_yaw
+
+            current_cam_pitch = cam_pitch
+            current_cam_yaw = cam_yaw
 
             # 2.0-Second Safety Kill Switch
             if current_time - last_command_time > MAX_EXEC_TIME:
