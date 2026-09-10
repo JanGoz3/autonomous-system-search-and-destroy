@@ -10,11 +10,13 @@ class RolloutBuffer:
         self.rewards = torch.zeros((buffer_size, nr_of_agents)).to(device)
         self.dones = torch.zeros((buffer_size, nr_of_agents)).to(device)
 
+        self.masks = torch.zeros((buffer_size, nr_of_agents)).to(device)
+
         self.step_counter = 0
         self.buffer_size = buffer_size
 
 
-    def insert(self, state, action, log_prob, value, reward, done):
+    def insert(self, state, action, log_prob, value, reward, done, mask):
 
         self.states[self.step_counter] = state
         self.actions[self.step_counter] = action
@@ -22,6 +24,7 @@ class RolloutBuffer:
         self.values[self.step_counter] = value
         self.rewards[self.step_counter] = reward
         self.dones[self.step_counter] = done
+        self.masks[self.step_counter] = mask
 
         self.step_counter += 1
 

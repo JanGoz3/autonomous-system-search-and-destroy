@@ -10,83 +10,99 @@ public class CarAgent : Agent
     [Header("Hardware Link")]
     public Chassis chassis;
 
-    [Header("Training Environment")]
-    public Transform startingPoint;
-
     [Header("Target Object")]
     public Transform Target;
 
-    [Header("Target Spawn Radius")]
-    public float tgtSpawnR = 2;
-
     [Header("Navmesh Target Spawner")]
     public LocalNavMeshSpawner spawner;
+    [Header("Collision & Recovery")]
+    public float maxStuckDuration = 2.5f;
+    private float m_StuckTimer = 0f;
+    private bool m_IsColliding = false;
 
     [Header("Heuristic Smoothing (Keyboard Only)")]
     public float steeringSensitivity = 3f;
     public float speedSensitivity = 0.25f;
     public float turretSensitivity = 4f;
 
-    private float m_currentSteering = 0f;
-    private float m_currentSpeed = 0f;
-    private float m_currentPitch = 0f;
-    private float m_currentYaw = 0f;
-    private float previousDistance = 0f;
+    [Header("Shooter Override")]
+    public bool isEngagingTarget = false;
+    public float autoAimPitch = 0f;
+    public float autoAimYaw = 0f;
 
+    [HideInInspector]
+    public bool hadCollisionThisStep = false;
+
+    private float previousDistance = 0f;
+    private float curriculumProgress = 0f;
+    private float spawnRadius = 2f;
+    private float maxSpawnAngle = 45;
+    private float m_AiMotor = 0f;
+    private float m_AiSteering = 0f;
+    private float m_AiCamPitch = 0f;
+    private float m_AiCamYaw = 0f;
+    public float engagementTimer = 0f;
+
+    [Header("Training mode")]
+    public bool trainingMode = true;
+    public float startingStepOffset = 0f;
     public override void OnEpisodeBegin()
     {
-        if (chassis != null)
-        {
-            chassis.SetNeutral();
-            
-            if (chassis.carRigidbody != null)
-            {
-                chassis.carRigidbody.linearVelocity = Vector3.zero;
-                chassis.carRigidbody.angularVelocity = Vector3.zero;
-            }
-        }
-
-        Vector3 safeSpawnLocation = spawner.GetRandomSafePoint();
-
-        transform.SetPositionAndRotation(
-            safeSpawnLocation + new Vector3(0, 0.1f, 0), 
-            Quaternion.Euler(0, Random.Range(0f, 360f), 0)
-        );
-
-        // float dynamicRadius = Mathf.Min(25.0f, 1.0f + (Academy.Instance.StepCount / 1000000f));
-        float dynamicRadius = 5f;
-
-        // Spawn the target CLOSE to the car (Curriculum Learning)
-        // We pick a random direction, multiply by your radius, and add it to the car's position
+        m_StuckTimer = 0f;
+        m_IsColliding = false;
         
-        bool foundValidSpawn = false;
-        for (int i = 0; i < 10; i++)
-        {
-            Vector2 randomCircle = Random.insideUnitCircle.normalized * dynamicRadius;
-            Vector3 nearCarPosition = transform.position + new Vector3(randomCircle.x, 0, randomCircle.y);
-            
-            NavMeshHit hit;
-            if (NavMesh.SamplePosition(nearCarPosition, out hit, 5.0f, NavMesh.AllAreas))
+        if (trainingMode) {
+            curriculumProgress = Mathf.Clamp01((Academy.Instance.TotalStepCount * 5 + startingStepOffset)/ 5e6f);
+            //curriculumProgress = 1.0f;
+            if (chassis != null)
             {
-                Target.position = hit.position + new Vector3(0, 0.05f, 0);
-                foundValidSpawn = true;
-                break;
+                chassis.SetNeutral();
+                
+                if (chassis.carRigidbody != null)
+                {
+                    chassis.carRigidbody.linearVelocity = Vector3.zero;
+                    chassis.carRigidbody.angularVelocity = Vector3.zero;
+                }
             }
-        }
 
-        if (!foundValidSpawn)
-        {
-            Vector3 fallbackPos = spawner.GetRandomSafePoint();
-            Target.position = fallbackPos + new Vector3(0, 0.05f, 0);
-        }
+            Vector3 safeSpawnLocation = spawner.GetRandomSafePoint();
 
-        previousDistance = Vector3.Distance(transform.localPosition, Target.localPosition);
+            transform.SetPositionAndRotation(
+                safeSpawnLocation + new Vector3(0, 0.1f, 0), 
+                Quaternion.Euler(0, Random.Range(0f, 360f), 0)
+            );
+        
+            // TARGET SPAWN ##############
+            bool foundValidSpawn = false;
+            for (int i = 0; i < 10; i++)
+            {
+                float randomAngle = Random.Range(-maxSpawnAngle, maxSpawnAngle);
+                Vector3 spawnDirection = Quaternion.Euler(0, randomAngle, 0) * transform.forward;
+                Vector3 nearCarPosition = transform.position + (spawnDirection * Random.Range(1.0f, spawnRadius));
+                
+                NavMeshHit hit;
+                if (NavMesh.SamplePosition(nearCarPosition, out hit, 5.0f, NavMesh.AllAreas))
+                {
+                    Target.position = hit.position + new Vector3(0, 0.05f, 0);
+                    foundValidSpawn = true;
+                    break;
+                }
+            }
+
+            if (!foundValidSpawn)
+            {
+                Vector3 fallbackPos = spawner.GetRandomSafePoint();
+                Target.position = fallbackPos + new Vector3(0, 0.05f, 0);
+            }   
+        }
+        // ###########################
+
+        previousDistance = Vector3.Distance(transform.position, Target.position);
     }
 
     public override void CollectObservations(VectorSensor sensor)
     {
         if (chassis == null) return;
-
         float[] telemetryData = chassis.GetTelemetryState();
 
         sensor.AddObservation(telemetryData);
@@ -97,53 +113,141 @@ public class CarAgent : Agent
 
         sensor.AddObservation(relativeTargetPos.x / maxArenaSize);
         sensor.AddObservation(relativeTargetPos.z / maxArenaSize);
+
     }
 
-    void OnCollisionEnter(Collision collision) {
-        if (collision.gameObject.CompareTag("object")) {
-            //SetReward(-1.0f);
-            //EndEpisode();
+    private void OnCollisionEnter(Collision collision) 
+    {
+        if (trainingMode && collision.gameObject.CompareTag("object")) 
+        {
+            m_IsColliding = true;
+            AddReward(-1.0f); // Initial bump penalty; episode does not terminate
         }       
+    }
+
+    private void OnCollisionStay(Collision collision) 
+    {
+        if (trainingMode && collision.gameObject.CompareTag("object"))
+        {
+            m_IsColliding = true;
+            AddReward(-0.001f); // Minor tick penalty for lingering/pressing into wall
+        }
+    }
+
+    private void OnCollisionExit(Collision collision)
+    {
+        if (trainingMode && collision.gameObject.CompareTag("object"))
+        {
+            m_IsColliding = false;
+        }
     }
 
     public override void OnActionReceived(ActionBuffers actions)
     {
-        float aiMotor = actions.ContinuousActions[0];
-        float aiSteering = actions.ContinuousActions[1];
-        float aiCamPitch = actions.ContinuousActions[2];
-        float aiCamYaw = actions.ContinuousActions[3];
+        m_AiMotor = Mathf.Clamp(actions.ContinuousActions[0], -1f, 1f);
+        m_AiSteering = Mathf.Clamp(actions.ContinuousActions[1], -1f, 1f);
+        m_AiCamPitch = Mathf.Clamp(actions.ContinuousActions[2], -1f, 1f);
+        m_AiCamYaw = Mathf.Clamp(actions.ContinuousActions[3], -1f, 1f);
 
         // Rewards
-        float currentDistance = Vector3.Distance(transform.localPosition, Target.localPosition);
+        float currentDistance = Vector3.Distance(transform.position, Target.position);
 
-        if (chassis != null)
+        // kill switch if physics glitch out
+        if (transform.position.y < -2f || transform.position.y > 10f || currentDistance > 60f) 
         {
-            chassis.SetSpeed(aiMotor);
-            chassis.SetSteering(aiSteering);
-            chassis.SetCameraServos(aiCamPitch, aiCamYaw);
+            SetReward(-5.0f);
+            EndEpisode();
+            return;
         }
 
-        // TODO: Rewards system
-        // 1. Reached Target (Big Reward)
-        if (currentDistance < 0.3f) {
-            Debug.Log("Found target");
-            SetReward(5.0f);
+        float cameraJitter = Mathf.Abs(m_AiCamPitch) + Mathf.Abs(m_AiCamYaw);
+        AddReward(-0.0005f * cameraJitter);
+
+        // WALL RECOVERY AND STUCK TIMER #############################
+
+        if(trainingMode && m_IsColliding)
+        {
+            float speed = (chassis != null && chassis.carRigidbody != null) ? chassis.carRigidbody.linearVelocity.magnitude : 0f;
+            // increment the timer only if the car is immobile
+            if(speed < 0.2f)
+            {
+                m_StuckTimer += Time.fixedDeltaTime;
+            }
+            // car is stuck for too long
+            if (m_StuckTimer >= maxStuckDuration)
+            {
+                SetReward(-10.0f);
+                EndEpisode();
+                return;
+            }
+        }
+        else
+        {
+            m_StuckTimer = Mathf.Max(0f, m_StuckTimer - Time.fixedDeltaTime * 0.2f);
+        }
+        // ############################
+
+
+        // Reached Target (Big Reward)
+        // Mathf.Lerp(A, B, t): Stands for "Linear Interpolation". It blends between value A and value B based on a percentage t.
+        if (trainingMode && currentDistance < Mathf.Lerp(0.7f, 0.3f, curriculumProgress)) 
+        {
+            Vector3 directionToTarget = (Target.position - transform.position).normalized;
+            float alignment = Vector3.Dot(transform.forward, directionToTarget);
+            float formBonus = Mathf.Clamp01(alignment);
+            float finalWinReward = 15.0f + (10.0f * formBonus);
+            SetReward(finalWinReward);
             EndEpisode();
         } 
         // 3. Still playing
-        else {
+        else 
+        {
             float distanceMoved = previousDistance - currentDistance;
-            AddReward(distanceMoved); 
+            distanceMoved = Mathf.Clamp(distanceMoved, -10.0f, 10.0f);
+            // suppress distance penalty while colliding so reversing away isn't punished.
+            if (!m_IsColliding)
+            {
+                AddReward(distanceMoved);
+            }
+            if (MaxStep != 0)
+            {
+                AddReward(-1.0f / MaxStep);
+            }
             previousDistance = currentDistance;
-
-            // float forwardSpeed = Vector3.Dot(chassis.carRigidbody.linearVelocity, transform.forward);
-            // if(forwardSpeed > 0.5f) {
-            //     float straightness = 1.0f - Mathf.Abs(aiSteering);
-            //     float movementReward = forwardSpeed * 0.0002f * straightness;
-            //     AddReward(movementReward);
-            //}
         }
 
+    }
+
+    void FixedUpdate()
+    {
+        float finalMotor = m_AiMotor;
+        float finalSteering = m_AiSteering;
+        float finalPitch = m_AiCamPitch;
+        float finalYaw = m_AiCamYaw;
+
+        if (isEngagingTarget)
+        {
+            engagementTimer = 5f;
+        }
+        else
+        {
+            engagementTimer -= Time.fixedDeltaTime;
+        }
+
+        if (engagementTimer > 0f)
+        {
+            finalSteering = 0f;
+            finalPitch = autoAimPitch; 
+            finalYaw = autoAimYaw;     
+            finalMotor = 0f;   
+        }
+
+        if (chassis != null)
+        {
+            chassis.SetSpeed(finalMotor);
+            chassis.SetSteering(finalSteering);
+            chassis.SetCameraServos(finalPitch, finalYaw);
+        }
     }
 
     public override void Heuristic(in ActionBuffers actionsOut)
@@ -170,14 +274,10 @@ public class CarAgent : Agent
         if (keyboard.dKey.isPressed) targetYaw = 1f;
         if (keyboard.aKey.isPressed) targetYaw = -1f;
 
-        m_currentSpeed = Mathf.MoveTowards(m_currentSpeed, targetSpeed, speedSensitivity * Time.deltaTime);
-        m_currentSteering = Mathf.MoveTowards(m_currentSteering, targetSteering, steeringSensitivity * Time.deltaTime);
-        m_currentPitch = Mathf.MoveTowards(m_currentPitch, targetPitch, turretSensitivity * Time.deltaTime);
-        m_currentYaw = Mathf.MoveTowards(m_currentYaw, targetYaw, turretSensitivity * Time.deltaTime);
-
-        continuousActionsOut[0] = m_currentSpeed;
-        continuousActionsOut[1] = m_currentSteering;
-        continuousActionsOut[2] = m_currentPitch;
-        continuousActionsOut[3] = m_currentYaw;
+        // Directly assign the raw inputs to the action buffers
+        continuousActionsOut[0] = targetSpeed;
+        continuousActionsOut[1] = targetSteering;
+        continuousActionsOut[2] = targetPitch;
+        continuousActionsOut[3] = targetYaw;
     }
 }

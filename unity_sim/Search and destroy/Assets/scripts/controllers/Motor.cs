@@ -56,8 +56,7 @@ public class Motor : MonoBehaviour
             else 
             {
                 ApplyBrakeTorque(0f);
-                ApplyMotorTorque(speed * maxMotorTorque); 
-            }
+                ApplyMotorTorque(currentSpeedMPS < (maxSpeedMetersPerSec * 0.5f) ? (speed * maxMotorTorque) : 0f);            }
         }
     }
 

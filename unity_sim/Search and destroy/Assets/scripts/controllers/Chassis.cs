@@ -16,6 +16,9 @@ public class Chassis : MonoBehaviour
     public TofSensor tofSensor;
     public YoloVision yoloVision;
 
+    private const int YoloFeatureCount = 27;
+    private readonly float[] m_Telemetry = new float[11 + YoloFeatureCount];
+
     void Awake() 
     {
         Initialize();
@@ -60,42 +63,65 @@ public class Chassis : MonoBehaviour
 
         float maxAccel = 16f;
         float maxGyro = 2000f;
-        float maxTof = 4000f;
+        float maxTof = 3000f;
 
-        float[] yoloData = yoloVision.GetYoloState();
         // if (yoloData != null && yoloData.Length > 0) {
         //     Debug.Log("Yolo data: " + string.Join(", ", yoloData));
         // } else {
         //     Debug.Log("Yolo data: No objects detected.");
         // }
 
-        bool yoloDetected = yoloData != null && yoloData.Length >= 6;
-
-        float[] telemetry = new float[]
-        {
-            motor.GetCurrentSetSpeed(),
-            steering.GetCurrentSetSwing(),
-            cameraState.pitch,
-            cameraState.yaw,
-            
-            Mathf.Clamp(accel.x / maxAccel, -1f, 1f),
-            Mathf.Clamp(accel.y / maxAccel, -1f, 1f),
-            Mathf.Clamp(accel.z / maxAccel, -1f, 1f),
-            
-            Mathf.Clamp(gyro.x / maxGyro, -1f, 1f),
-            Mathf.Clamp(gyro.y / maxGyro, -1f, 1f),
-            Mathf.Clamp(gyro.z / maxGyro, -1f, 1f),
-            
-            Mathf.Clamp(tofSensor.GetDistance() / maxTof, 0f, 1f),
-
-            yoloDetected ? yoloData[0] : 0f, // Bounding Box Center X
-            yoloDetected ? yoloData[1] : 0f, // Bounding Box Center Y
-            yoloDetected ? yoloData[2] : 0f, // Bounding Box Width
-            yoloDetected ? yoloData[3] : 0f, // Bounding Box Height
-            yoloDetected ? yoloData[4] : 0f, // YOLO Confidence Score
-            yoloDetected ? yoloData[5] : -1f  // YOLO Class ID
-        };
+        // hardware telemetry
+        m_Telemetry[0] = motor.GetCurrentSetSpeed();
+        m_Telemetry[1] = steering.GetCurrentSetSwing();
+        m_Telemetry[2] = cameraState.pitch;
+        m_Telemetry[3] = cameraState.yaw;
         
-        return telemetry;
+        m_Telemetry[4] = Mathf.Clamp(accel.x / maxAccel, -1f, 1f);
+        m_Telemetry[5] = Mathf.Clamp(accel.y / maxAccel, -1f, 1f);
+        m_Telemetry[6] = Mathf.Clamp(accel.z / maxAccel, -1f, 1f);
+        
+        m_Telemetry[7] = Mathf.Clamp(gyro.x / maxGyro, -1f, 1f);
+        m_Telemetry[8] = Mathf.Clamp(gyro.y / maxGyro, -1f, 1f);
+        m_Telemetry[9] = Mathf.Clamp(gyro.z / maxGyro, -1f, 1f);
+        
+        m_Telemetry[10] = Mathf.Clamp(tofSensor.GetDistance() / maxTof, 0f, 1f);
+
+        // m_Telemetry[0] = motor.GetCurrentSetSpeed();
+        // m_Telemetry[1] = steering.GetCurrentSetSwing();
+        // m_Telemetry[2] = cameraState.pitch;
+        // m_Telemetry[3] = cameraState.yaw;
+        
+        // m_Telemetry[4] = accel.x;
+        // m_Telemetry[5] = accel.y;
+        // m_Telemetry[6] = accel.z;
+        
+        // m_Telemetry[7] = gyro.x;
+        // m_Telemetry[8] = gyro.y;
+        // m_Telemetry[9] = gyro.z;
+        
+        // m_Telemetry[10] = tofSensor.GetDistance();
+
+
+
+        //yolo state
+        if (yoloVision != null)
+        {
+            float[] yoloData = yoloVision.GetYoloState();
+            if (yoloData != null && yoloData.Length >= YoloFeatureCount)
+            {
+                // Fast block copy of all 27 floats into m_Telemetry starting at index 11
+                System.Array.Copy(yoloData, 0, m_Telemetry, 11, YoloFeatureCount);
+            }
+            else
+            {
+                System.Array.Clear(m_Telemetry, 11, YoloFeatureCount);
+            }
+        }
+        else
+        {
+            System.Array.Clear(m_Telemetry, 11, YoloFeatureCount);
+        }        
+        return m_Telemetry;
     }
 }
