@@ -1601,7 +1601,7 @@ MonoBehaviour:
   useNavMeshPath: 1
   pathUpdateInterval: 0.05
   navSampleRadius: 1.5
-  driveTarget: 0
+  driveTarget: 1
   respawnOnStart: 1
   spawnYawJitter: 90
   spawnHeightOffset: 0.2
@@ -1641,7 +1641,7 @@ MonoBehaviour:
   carAgent: {fileID: 663955674}
   logIntervalSeconds: 0.1
   outputFolder: DTDataset
-  instancePrefix: hard
+  instancePrefix: 
   autoEndAfterSteps: 1000
   minEpisodeSteps: 300
   isRecording: 0
