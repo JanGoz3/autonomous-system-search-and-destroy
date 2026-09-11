@@ -19,6 +19,7 @@ STACKED_VECTORS = 3
 STATE_SPACE = 40
 MAX_ARENA_SIZE = 20.0  
 CONTROL_HZ = 20.0      
+
 MAX_EXEC_TIME = 2.0
 ACCEL_FACTOR = 0.15
 
@@ -47,6 +48,32 @@ current_target_z = 0.0
 last_command_time = 0.0  
 is_running = True
 
+class CameraStream:
+    """Runs a background thread to continuously pull frames, eliminating OpenCV buffer lag."""
+    def __init__(self, pipeline):
+        self.cap = cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
+        if not self.cap.isOpened():
+            raise RuntimeError("Failed to open CSI physical camera.")
+        self.ret, self.frame = self.cap.read()
+        self.running = True
+        self.thread = threading.Thread(target=self._update, daemon=True)
+        self.thread.start()
+
+    def _update(self):
+        while self.running:
+            ret, frame = self.cap.read()
+            if ret:
+                self.frame = frame
+
+    def read(self):
+        return self.ret, self.frame
+        
+    def release(self):
+        self.running = False
+        self.thread.join()
+        self.cap.release()
+
+    
 def terminal_input_thread():
     global current_target_x, current_target_z, is_running, last_command_time
     
@@ -78,7 +105,6 @@ def terminal_input_thread():
 
 def draw_debug_overlay(debug_frame, detections, is_engaging, engagement_timer, best_target):
     """Draws detections, crosshairs, and tracking status on a 320x320 image."""
-    # Draw center crosshairs (160, 160)
     cv2.drawMarker(debug_frame, (160, 160), (200, 200, 200), cv2.MARKER_CROSS, 20, 1)
 
     for det in detections:
@@ -92,7 +118,6 @@ def draw_debug_overlay(debug_frame, detections, is_engaging, engagement_timer, b
         color = CLASS_COLORS.get(cid, (255, 255, 255))
         label = CLASS_NAMES.get(cid, f"ID:{cid}")
 
-        # Highlight currently locked target with a thicker box
         thickness = 3 if (best_target is not None and det is best_target) else 1
         cv2.rectangle(debug_frame, (x, y), (x + w, y + h), color, thickness)
 
@@ -100,7 +125,6 @@ def draw_debug_overlay(debug_frame, detections, is_engaging, engagement_timer, b
         cv2.putText(debug_frame, caption, (x, max(15, y - 5)), 
                     cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1, cv2.LINE_AA)
 
-    # Status banner at the top
     if engagement_timer > 0.0:
         status_text = f"LOCKED (Timer: {engagement_timer:.1f}s)"
         status_color = (0, 0, 255)
@@ -114,8 +138,21 @@ def draw_debug_overlay(debug_frame, detections, is_engaging, engagement_timer, b
 def main():
     global is_running, current_target_x, current_target_z, last_command_time
     
-    print("Initializing Models and Hardware...")
-    providers = ['CUDAExecutionProvider', 'CPUExecutionProvider'] if 'CUDAExecutionProvider' in ort.get_available_providers() else ['CPUExecutionProvider']
+    available_providers = ort.get_available_providers()
+    print(f"[DEBUG] Available ONNX Providers: {available_providers}")
+
+    providers = []
+    if 'TensorrtExecutionProvider' in available_providers:
+        print("[!] Activating TensorRT Engine (First run will take a few minutes to build...)")
+        providers.append(('TensorrtExecutionProvider', {
+            'trt_fp16_enable': True,
+            'trt_engine_cache_enable': True,
+            'trt_engine_cache_path': './trt_cache'
+        }))
+    elif 'CUDAExecutionProvider' in available_providers:
+        providers.append('CUDAExecutionProvider')
+    
+    providers.append('CPUExecutionProvider')
     
     yolo_session = ort.InferenceSession(YOLO_MODEL_PATH, providers=providers)
     yolo_processor = YoloProcessor(yolo_session)
@@ -127,12 +164,9 @@ def main():
     
     print("Initializing CSI Camera via GStreamer...")
     pipeline = gstreamer_pipeline(flip_method=0)
-    cap = cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
-    
-    if not cap.isOpened():
-        raise RuntimeError("Failed to open CSI physical camera.")
+    cap = CameraStream(pipeline) # Uses the new lag-free threaded reader
 
-    cv2.namedWindow("Target Tracking Debug", cv2.WINDOW_NORMAL)
+    # cv2.namedWindow("Target Tracking Debug", cv2.WINDOW_NORMAL)
 
     frame_buffer = deque([np.zeros(STATE_SPACE, dtype=np.float32) for _ in range(STACKED_VECTORS)], maxlen=STACKED_VECTORS)
     loop_interval = 1.0 / CONTROL_HZ
@@ -151,6 +185,7 @@ def main():
     current_cam_pitch = 0.0
     current_cam_yaw = 0.0
 
+
     try:
         while is_running:
             current_time = time.perf_counter()
@@ -160,8 +195,8 @@ def main():
             ret, frame = cap.read()
             if not ret: continue
 
-            # Pre-resize frame for debug display to match YOLO's 320x320 coordinate space
-            debug_frame = cv2.resize(frame, (320, 320))
+            # # Pre-resize frame for debug display to match YOLO's 320x320 coordinate space
+            # debug_frame = cv2.resize(frame, (320, 320))
 
             yolo_obs, detections = yolo_processor.process_frame(frame)
             target_found = False
@@ -197,11 +232,11 @@ def main():
                 engagement_timer = max(0.0, engagement_timer - dt)
 
             # Draw Unity-like debug overlay and display
-            draw_debug_overlay(debug_frame, detections, is_engaging_target, engagement_timer, best_target)
-            cv2.imshow("Target Tracking Debug", debug_frame)
-            if cv2.waitKey(1) & 0xFF == ord('q'):
-                is_running = False
-                break
+            # draw_debug_overlay(debug_frame, detections, is_engaging_target, engagement_timer, best_target)
+            # cv2.imshow("Target Tracking Debug", debug_frame)
+            # if cv2.waitKey(1) & 0xFF == ord('q'):
+            #     is_running = False
+            #     break
 
             # Odometry & Navigation
             raw_telemetry = hardware.get_telemetry()
@@ -263,7 +298,7 @@ def main():
                 throttle = 0.0
                 steering = 0.0
 
-            # 2.0-Second Safety Kill Switch
+            # MAX_EXEC_TIME Second Safety Kill Switch
             if current_time - last_command_time > MAX_EXEC_TIME:
                 throttle = 0.0
 
@@ -272,7 +307,7 @@ def main():
             elapsed = time.perf_counter() - current_time
             sleep_time = loop_interval - elapsed
             if sleep_time > 0:
-                time.sleep(sleep_time)
+                 time.sleep(sleep_time)
 
     except KeyboardInterrupt:
         print("\n[!] Ctrl+C detected. Stopping...")
