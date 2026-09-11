@@ -13,6 +13,10 @@ public class CarAgent : Agent
     [Header("Target Object")]
     public Transform Target;
 
+    [Header("AR Tracking Link")]
+    public MockArTracker arTracker;
+    public bool useArTracking = true;
+
     [Header("Navmesh Target Spawner")]
     public LocalNavMeshSpawner spawner;
     [Header("Collision & Recovery")]
@@ -28,7 +32,7 @@ public class CarAgent : Agent
     [Header("Shooter Override")]
     public bool isEngagingTarget = false;
     public float autoAimPitch = 0f;
-    public float autoAimYaw = 0f;
+    public float autoAimYaw = 0f; 
 
     [HideInInspector]
     public bool hadCollisionThisStep = false;
@@ -97,8 +101,19 @@ public class CarAgent : Agent
         }
         // ###########################
 
+        if (arTracker != null)
+        {
+            arTracker.ResetSession();
+        }
+
         previousDistance = Vector3.Distance(transform.position, Target.position);
     }
+
+    // kody ArUco, na ich podstawie ustalać pozycje.
+    // https://www.youtube.com/watch?v=bS00Vs09Upw
+    // SLAM
+    // AR kit
+    
 
     public override void CollectObservations(VectorSensor sensor)
     {
@@ -106,13 +121,21 @@ public class CarAgent : Agent
         float[] telemetryData = chassis.GetTelemetryState();
 
         sensor.AddObservation(telemetryData);
-
-        Vector3 relativeTargetPos = transform.InverseTransformPoint(Target.position);
-
+        
         float maxArenaSize = 20f;
 
-        sensor.AddObservation(relativeTargetPos.x / maxArenaSize);
-        sensor.AddObservation(relativeTargetPos.z / maxArenaSize);
+        if (useArTracking && arTracker != null)
+        {
+            Vector2 relativeTarget = arTracker.GetRelativeTargetVector(Target.position);
+            sensor.AddObservation(relativeTarget.x / maxArenaSize);
+            sensor.AddObservation(relativeTarget.y / maxArenaSize);   
+        }
+        else
+        {
+            Vector3 relativeTargetPos = transform.InverseTransformPoint(Target.position);
+            sensor.AddObservation(relativeTargetPos.x / maxArenaSize);
+            sensor.AddObservation(relativeTargetPos.z / maxArenaSize);
+        }
 
     }
 
