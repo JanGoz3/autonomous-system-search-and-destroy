@@ -19,7 +19,7 @@ def gstreamer_pipeline(
         "nvvidconv flip-method=%d ! "
         "video/x-raw, width=(int)%d, height=(int)%d, format=(string)BGRx ! "
         "videoconvert ! "
-        "video/x-raw, format=(string)BGR ! appsink"
+        "video/x-raw, format=(string)BGR ! appsink drop=true max-buffers=1"
         % (
             capture_width,
             capture_height,
@@ -57,20 +57,18 @@ class YoloProcessor:
         confidence_threshold = 0.5
         
         for pred in predictions:
-            objectness = pred[4]
-            if objectness > confidence_threshold:
-                class_scores = pred[5:]
-                class_id = np.argmax(class_scores)
-                score = class_scores[class_id] * objectness
+            conf = pred[4]
+            if conf > confidence_threshold:
+                class_id = int(round(pred[5])) 
                 
-                if score > confidence_threshold:
-                    cx, cy, w, h = pred[0:4]
-                    x_min = cx - (w / 2)
-                    y_min = cy - (h / 2)
-                    
-                    boxes.append([x_min, y_min, w, h])
-                    confidences.append(float(score))
-                    class_ids.append(class_id)
+                x_min, y_min, x_max, y_max = pred[0:4]
+                
+                w = x_max - x_min
+                h = y_max - y_min
+                
+                boxes.append([float(x_min), float(y_min), float(w), float(h)])
+                confidences.append(float(conf))
+                class_ids.append(class_id)
 
         final_detections = []
         if len(boxes) > 0:
@@ -78,12 +76,17 @@ class YoloProcessor:
             if len(indices) > 0:
                 for i in indices.flatten():
                     x_min, y_min, w, h = boxes[i]
+                    
+                    x_max = x_min + w
+                    y_max = y_min + h
                     cx = x_min + (w / 2)
                     cy = y_min + (h / 2)
                     area = w * h
                     
                     final_detections.append({
                         'x': cx, 'y': cy, 'w': w, 'h': h, 
+                        'x_min': x_min, 'y_min': y_min,
+                        'x_max': x_max, 'y_max': y_max,
                         'conf': confidences[i], 
                         'class_id': class_ids[i],
                         'area': area
@@ -100,10 +103,11 @@ class YoloProcessor:
                 if det['class_id'] < 4:
                     class_one_hot[det['class_id']] = 1.0
                 
-                norm_x = (det['x'] - 160.0) / 160.0
-                norm_y = (det['y'] - 160.0) / 160.0
-                norm_w = det['w'] / 320.0
-                norm_h = det['h'] / 320.0
+                norm_x = (det['x_min'] - 160.0) / 160.0
+                norm_y = (det['y_min'] - 160.0) / 160.0
+                norm_w = det['x_max'] / 320.0
+                norm_h = det['y_max'] / 320.0
+                
                 features = [norm_x, norm_y, norm_w, norm_h, det['conf']] + class_one_hot                
                 yolo_array.extend(features)
             else:
