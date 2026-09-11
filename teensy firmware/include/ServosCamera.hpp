@@ -98,11 +98,24 @@ public:
     {
         if (m_isInitialized)
         {
-            float swingConstrainedPitch = constrain(-1*swingPitch, m_SwingConstraintPitchDown, m_SwingConstraintPitchUp );
-            m_pitchServo.write(convertSwingToDegrees(swingConstrainedPitch));
-            m_currentSetSwingPitch = swingPitch;
-        }
+            float constrainedInput = constrain(swingPitch, -1.0f, 1.0f);
+            float physicalSwing = 0.0f;
 
+            if (constrainedInput > 0.0f)
+            {
+                physicalSwing = constrainedInput * 0.422f; 
+            }
+            else if (constrainedInput < 0.0f)
+            {
+                physicalSwing = constrainedInput * 0.318f;
+            }
+
+            float swingConstrainedPitch = constrain(-1.0f * physicalSwing, m_SwingConstraintPitchDown, m_SwingConstraintPitchUp);
+            
+            m_pitchServo.write(convertSwingToDegrees(swingConstrainedPitch));
+            
+            m_currentSetSwingPitch = constrainedInput;
+        }
     }
 
     void SetYaw(float swingYaw)
