@@ -56,7 +56,7 @@ public class CarAgent : Agent
         m_IsColliding = false;
         
         if (trainingMode) {
-            curriculumProgress = Mathf.Clamp01((Academy.Instance.TotalStepCount * 5 + startingStepOffset)/ 5e6f);
+            curriculumProgress = Mathf.Clamp01((Academy.Instance.TotalStepCount * 5 + startingStepOffset)/ 1e6f);
             //curriculumProgress = 1.0f;
             if (chassis != null)
             {
@@ -82,7 +82,7 @@ public class CarAgent : Agent
             {
                 float randomAngle = Random.Range(-maxSpawnAngle, maxSpawnAngle);
                 Vector3 spawnDirection = Quaternion.Euler(0, randomAngle, 0) * transform.forward;
-                Vector3 nearCarPosition = transform.position + (spawnDirection * Random.Range(1.0f, spawnRadius));
+                Vector3 nearCarPosition = transform.position + (spawnDirection * Random.Range(1.0f, Mathf.Lerp(1.0f, spawnRadius, curriculumProgress)));
                 
                 NavMeshHit hit;
                 if (NavMesh.SamplePosition(nearCarPosition, out hit, 5.0f, NavMesh.AllAreas))

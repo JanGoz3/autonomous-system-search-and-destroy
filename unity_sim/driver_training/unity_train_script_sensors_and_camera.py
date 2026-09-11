@@ -81,7 +81,7 @@ MINIBATCH_SIZE = 1024
 CLIP_COEF = 0.2
 ENT_COEF = 0.01
 VF_COEF = 0.5
-CHECKPOINT_FILE = "driver_V5_checkpoint.pth"
+CHECKPOINT_FILE = "driver_V6_checkpoint.pth"
 
 engine_channel = EngineConfigurationChannel()
 engine_channel.set_configuration_parameters(time_scale=5.0)

@@ -10,13 +10,12 @@ public class MockArTracker : MonoBehaviour
     [Header("Latency Simulation")]
     public float latencySeconds = 0.04f;
 
-    private Vector3 m_SessionOrginPosition;
-    private Quaternion m_SessionOrginRotation;
-
-    private float m_TotalDistanceDriven = 0f;
+    private Vector3 m_SessionOriginPosition;
+    private Quaternion m_SessionOriginRotation;
     private Vector3 m_LastTruePosition;
     private float m_AccumulatedYawDrift = 0f;
     private float m_RandomScaleDrift = 1.0f;
+    private float m_SessionDriftDirection = 1.0f;
 
     private struct PoseRecord
     {
@@ -28,12 +27,14 @@ public class MockArTracker : MonoBehaviour
 
     public void ResetSession()
     {
-        m_SessionOrginPosition = transform.position;
-        m_SessionOrginRotation = transform.rotation;
+        m_SessionOriginPosition = transform.position;
+        m_SessionOriginRotation = transform.rotation;
         m_LastTruePosition = transform.position;
 
-        m_TotalDistanceDriven = 0f;
         m_AccumulatedYawDrift = 0f;
+
+        // Choose consistent drift direction and scale imperfection for this run
+        m_SessionDriftDirection = Random.value > 0.5f ? 1f : -1f;
 
         m_RandomScaleDrift = 1.0f + Random.Range(-scaleErrorFactor, scaleErrorFactor);
         m_PoseHistory.Clear();
@@ -41,17 +42,16 @@ public class MockArTracker : MonoBehaviour
 
     void FixedUpdate()
     {
-        Vector3 trueDeltaWorld = transform.position - m_SessionOrginPosition;
-        Vector3 sessionPos = Quaternion.Inverse(m_SessionOrginRotation) * trueDeltaWorld;
+        Vector3 trueDeltaWorld = transform.position - m_SessionOriginPosition;
+        Vector3 sessionPos = Quaternion.Inverse(m_SessionOriginRotation) * trueDeltaWorld;
 
-        float trueYaw = (transform.rotation * Quaternion.Inverse(m_SessionOrginRotation)).eulerAngles.y;
+        float trueYaw = (Quaternion.Inverse(m_SessionOriginRotation) * transform.rotation).eulerAngles.y;
         if (trueYaw > 180f) trueYaw -= 360f;
 
         float stepDist = Vector3.Distance(transform.position, m_LastTruePosition);
-        m_TotalDistanceDriven += stepDist;
         m_LastTruePosition = transform.position;
 
-        m_AccumulatedYawDrift += stepDist / 100f * yawDriftDegPer100m * (Random.value > 0.5f ? 1f : -1f);
+        m_AccumulatedYawDrift += stepDist / 100f * yawDriftDegPer100m * m_SessionDriftDirection;
 
         // Inject imperfections
         // Scale error + high frequency Gaussian-like jitter
@@ -72,6 +72,11 @@ public class MockArTracker : MonoBehaviour
             position = noisySessionPos,
             yaw = noisyYaw
         });
+
+        while (m_PoseHistory.Count > 50)
+        {
+            m_PoseHistory.Dequeue();
+        }
     }
 
     /// <summary>
@@ -90,21 +95,12 @@ public class MockArTracker : MonoBehaviour
         } 
 
         // Convert target to Session Space
-        Vector3 targetDeltaWorld = targetWorldPosition - m_SessionOrginPosition;
-        Vector3 targetSessionPos = Quaternion.Inverse(m_SessionOrginRotation) * targetDeltaWorld;
-
-        // Delta in session space
-        float dx = targetSessionPos.x - currentPose.position.x;
-        float dz = targetSessionPos.z - currentPose.position.z;
+        Vector3 targetDeltaWorld = targetWorldPosition - m_SessionOriginPosition;
+        Vector3 targetSessionPos = Quaternion.Inverse(m_SessionOriginRotation) * targetDeltaWorld;
 
         // rotate by the car's noisy heading (-yaw) to bring into car local space
-        float angleRad = -currentPose.yaw * Mathf.Deg2Rad;
-        float cos = Mathf.Cos(angleRad);
-        float sin = Mathf.Sin(angleRad);
-
-        float localX = dx * cos - dz * sin;
-        float localZ = dx * sin + dz * cos;
-
-        return new Vector2(localX, localZ);
+        Vector3 sessionDelta = targetSessionPos - currentPose.position;
+        Vector3 carLocal = Quaternion.Euler(0f, -currentPose.yaw, 0f) * sessionDelta;
+        return new Vector2(carLocal.x, carLocal.z);
     }
 }
