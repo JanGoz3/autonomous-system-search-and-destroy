@@ -1,3 +1,21 @@
+"""
+Budowa datasetu behavior cloning z plikow CSV z DTDataLogger.
+
+Rozne wzgledem build_dt_dataset.py:
+  * BRAK compute_rewards / compute_return_to_go - nagroda nie jest uzywana
+  * EXCLUDE_YOLO - wycina telem_11..37. Pomiar na trzech epizodach: 6 z tych
+    kolumn bylo dokladnie stalych zerowych (flagi PERSON/TARGET nigdy nie
+    zapalily sie), a telem_29..35 byly niezerowe w 0.4% probek, co po
+    normalizacji dawalo |z| do 55 przy maksimum 9.5 w reszcie stanu.
+  * FILTR KATA - odrzuca etykiety wskazujace ZA auto. Na surowych danych bylo
+    ich 12-15%, w dwoch spojnych seriach po ~75 krokow. Auto z kierownica
+    Ackermanna nie moze ich wykonac.
+  * FILTRY POSTEPU I ODCHYLENIA - odrzucaja klatki, w ktorych rzut auta na
+    trase przeskoczyl (ProjectGlobally trafil w rownolegly korytarz) albo auto
+    bylo daleko od trasy. Wymagaja kolumn progress_along_route i
+    deviation_from_route; bez nich sa pomijane z ostrzezeniem.
+"""
+
 import pickle
 import re
 import warnings
@@ -6,101 +24,163 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+DATA_DIR = r"C:\Users\Admin\AppData\LocalLow\DefaultCompany\Search and destroy\DTDatasetBC"
 
-DATA_DIR = r"C:\Users\Admin\AppData\LocalLow\DefaultCompany\Search and destroy\DTDataset"
-
+# --- wariant stanu ---
 INCLUDE_POSITION = False
 INCLUDE_SCAN = True
 INCLUDE_SCAN_PITCH = True
-EXCLUDE_POLICY_OUTPUTS = True
+EXCLUDE_POLICY_OUTPUTS = True          # telem_0..3 = wyjscia polityki PPO
 POLICY_OUTPUT_COLUMNS = ("telem_0", "telem_1", "telem_2", "telem_3")
+# Blok YOLO: telem_11..37, 3 sloty po 9 cech (x, y, w, h, conf + 4 flagi klas).
+# Pomiar na zebranych danych: slot 0 ma detekcje w 47.9% krokow (drzwi w 46.1%),
+# slot 1 w 6.3%, slot 2 w 0.3%. Slot 2 dawal |z| = 44.7 po normalizacji przy 9.5
+# w reszcie stanu - rzadkie zdarzenia o ogromnej wartosci znormalizowanej.
+# Drzwi stoja w stalych miejscach, wiec dzialaja jak landmarki do lokalizacji -
+# i w przeciwienstwie do absolutnego yaw sa obserwowalne na robocie.
+YOLO_FIRST_INDEX = 11
+YOLO_FEATURES_PER_SLOT = 9
+YOLO_MAX_SLOTS = 2                     # 0 = calkowicie bez YOLO (dawne EXCLUDE_YOLO=True)
+
+# Ktore cechy w slocie pominac. Uklad slotu (YoloVision.RunInference):
+#   +0 x  +1 y  +2 w  +3 h  +4 conf  +5 chair  +6 door  +7 person  +8 target
+# Flagi PERSON i TARGET sa w zadaniu okrazenia zawsze zerowe: telem_19, 27, 28 to
+# kolumny dokladnie stale, a telem_18 odpala sie w ulamku promila probek i daje
+# |z| = 59 po normalizacji przy 9.5 w reszcie stanu. Zostaja x, y, w, h, conf,
+# chair, door - czyli 7 cech na slot zamiast 9.
+YOLO_DROP_OFFSETS = (7, 8)
 SCAN_PITCH_SCALE_DEG = 45.0
 
-OUTPUT_FILE = (f"dt_dataset_pos_navpath{int(INCLUDE_POSITION)}"
-               f"_scan{int(INCLUDE_SCAN)}"
-               f"{'p' if INCLUDE_SCAN and INCLUDE_SCAN_PITCH else ''}"
-               f"{'_nocmd' if EXCLUDE_POLICY_OUTPUTS else ''}.pkl")
+# Jawny kanal kierunku jazdy: +1 dla trasy podstawowej, -1 dla odwroconej.
+# EpisodeDirector koduje kierunek w nazwie pliku (bc_rev_noisy_r003_...), wiec
+# da sie go dodac do stanu BEZ zbierania nowych danych.
+#
+# Po co: przy Reverse Probability = 0.5 model mial w tym samym miejscu dwa poprawne
+# rozwiazania, rozrozniane tylko przez yaw. W trakcie zakretu kurs przechodzi przez
+# wartosci pasujace do OBU trybow i model potrafil przeskoczyc na drugi - w logu
+# decyzji widac trzy zawrotki po ~150 st, wszystkie w prawym korytarzu, z coneMass
+# nie nizszym niz 0.956. To nie byla niepewnosc, tylko spojny plan "jedz z powrotem".
+#
+# Kolumna idzie na POCZATEK wektora stanu; w Unity odpowiada jej pole
+# BCInference.drivingDirection.
+ADD_DIRECTION_CHANNEL = False
+REVERSE_MARKER = "_rev_"
 
-USE_EXPERT_LABEL = True
-
-USE_DISTANCE_RELABEL = True
-WAYPOINT_DIST = 1.5
-MAX_LOOKAHEAD_STEPS = 60
-
-HORIZON_STEPS = 15
-
-DECIMATE = 10
-KEEP_ALL_PHASES = True
-
-SUBSAMPLE_KEYS = ("states", "actions_m", "valid", "reached", "moving",
-                  "rewards", "returns_to_go")
-
-GRID_CELL_SIZE = 1.0
-
-COVERAGE_REWARD = 1.0
-STEP_PENALTY = -0.01
-COLLISION_PENALTY = -2.0
-
-MIN_EPISODE_LENGTH = MAX_LOOKAHEAD_STEPS + 10
+# --- filtry jakosci etykiety ---
+MAX_LABEL_ANGLE_DEG = 70.0     # |atan2(x, z)| powyzej tego = cel za autem
+MAX_PROGRESS_JUMP_M = 1.0      # skok rzutu na trase na krok logu (0.1 s)
+MAX_DEVIATION_M = 2.5          # odleglosc auta od trasy
 
 STILL_WINDOW = 5
 STILL_DIST_M = 0.02
-
 KEEP_EVERY_STILL = 10
-MIN_VALID_FRACTION = 0.10
+MIN_VALID_FRACTION = 0.30      # podniesione z 0.10 - po naprawie eksperta
+                               # epizod z mniej niz 30% waznych probek jest zly
+
+DECIMATE = 5                   # 10 Hz w logu -> 2 Hz decyzji (0.5 s)
+
+# Filtr plikow po nazwie - do ablacji kierunku jazdy.
+# EpisodeDirector koduje warunek w prefiksie: bc_fwd_clean_r003_episode_0004.csv
+#   None        -> wszystkie pliki
+#   "_fwd_"     -> tylko jazda w kierunku podstawowym
+#   "_rev_"     -> tylko odwrotna
+#   "_noisy_"   -> tylko z szumem (DAgger)
+# UWAGA przy porownywaniu: "_fwd_" daje ~polowe danych, wiec jesli mimo to wynik
+# na zakretach jest LEPSZY, to znaczy ze mieszanie kierunkow faktycznie szkodzi -
+# 4 narozniki x 31 epizodow to ~120 zdarzen narozníkowych na caly zbior, a podzial
+# na dwa kierunki zostawia po 60 na kazdy.
+FILE_FILTER = None
+KEEP_ALL_PHASES = True
+MIN_DECIMATED_LENGTH = 25
+MIN_EPISODE_LENGTH = 200
+
+SUBSAMPLE_KEYS = ("states", "actions_m", "valid")
+
+OUTPUT_FILE = (f"bc_dataset{'_' + FILE_FILTER.strip('_') if FILE_FILTER else ''}"
+               f"_pos{int(INCLUDE_POSITION)}"
+               f"_scan{int(INCLUDE_SCAN)}{'p' if INCLUDE_SCAN_PITCH else ''}"
+               f"{'_noyolo' if YOLO_MAX_SLOTS == 0 else f'_yolo{YOLO_MAX_SLOTS}'}"
+               f"{'_dir' if ADD_DIRECTION_CHANNEL else ''}.pkl")
 
 
-def world_to_local(d: np.ndarray, yaw_deg: np.ndarray) -> np.ndarray:
-    th = np.radians(yaw_deg)
-    c, s = np.cos(th), np.sin(th)
-    return np.stack([d[:, 0] * c - d[:, 1] * s,
-                     d[:, 0] * s + d[:, 1] * c], axis=1)
+# ----------------------------------------------------------------------
+# kolumny stanu
+# ----------------------------------------------------------------------
+
+def indexed_columns(df, prefix):
+    cols = sorted((c for c in df.columns if re.fullmatch(rf"{prefix}[0-9]+", c)),
+                  key=lambda c: int(c[len(prefix):]))
+    expected = [f"{prefix}{i}" for i in range(len(cols))]
+    if cols != expected:
+        raise ValueError(f"Nieciagle indeksy kolumn {prefix} w CSV: {cols}")
+    return cols
 
 
-def local_to_world(d: np.ndarray, yaw_deg: np.ndarray) -> np.ndarray:
-    th = np.radians(yaw_deg)
-    c, s = np.cos(th), np.sin(th)
-    return np.stack([d[:, 0] * c + d[:, 1] * s,
-                     -d[:, 0] * s + d[:, 1] * c], axis=1)
+def get_state_columns(df):
+    telem = indexed_columns(df, "telem_")
+    if not telem:
+        raise ValueError("Brakuje kolumn telemetrii w CSV")
 
-def relabel_by_distance(pos, yaw, target=WAYPOINT_DIST, max_steps=MAX_LOOKAHEAD_STEPS):
-    n = len(pos)
-    j_idx = np.empty(n, dtype=np.int64)
-    reached = np.zeros(n, dtype=bool)
+    if EXCLUDE_POLICY_OUTPUTS:
+        telem = [c for c in telem if c not in POLICY_OUTPUT_COLUMNS]
+    def keep_telem(name):
+        i = int(name[len("telem_"):])
+        if i < YOLO_FIRST_INDEX:
+            return True
+        slot, off = divmod(i - YOLO_FIRST_INDEX, YOLO_FEATURES_PER_SLOT)
+        return slot < YOLO_MAX_SLOTS and off not in YOLO_DROP_OFFSETS
 
-    for i in range(n):
-        hi = min(i + max_steps, n - 1)
-        seg = pos[i + 1:hi + 1] - pos[i]
-        if len(seg) == 0:
-            j_idx[i] = i
-            continue
-        dist = np.hypot(seg[:, 0], seg[:, 1])
-        hit = np.flatnonzero(dist >= target)
-        if len(hit):
-            j_idx[i] = i + 1 + hit[0]
-            reached[i] = True
+    telem = [c for c in telem if keep_telem(c)]
+
+    cols = (["direction"] if ADD_DIRECTION_CHANNEL else []) \
+         + (["posX", "posZ"] if INCLUDE_POSITION else []) + ["yaw"] + telem
+    pitch_cols = []
+
+    if INCLUDE_SCAN:
+        dist = indexed_columns(df, "scan_dist_")
+        ages = indexed_columns(df, "scan_age_")
+        if not dist and not ages:
+            warnings.warn("INCLUDE_SCAN=True, ale CSV nie ma scan_dist_*/scan_age_*.")
+        elif len(dist) != len(ages):
+            raise ValueError("Liczba kolumn scan_dist_* != scan_age_*")
         else:
-            j_idx[i] = hi
+            cols += dist + ages
+            if INCLUDE_SCAN_PITCH:
+                pitches = indexed_columns(df, "scan_pitch_")
+                if not pitches:
+                    warnings.warn("Brak scan_pitch_* - stan bez pitcha skanu.")
+                elif len(pitches) != len(dist):
+                    raise ValueError("Liczba scan_pitch_* != scan_dist_*")
+                else:
+                    cols += pitches
+                    pitch_cols = pitches
 
-    return world_to_local(pos[j_idx] - pos, yaw), reached
+    return cols, pitch_cols
 
 
-def relabel_by_steps(pos, yaw, horizon=HORIZON_STEPS):
-    n = len(pos)
-    fut = np.minimum(np.arange(n) + horizon, n - 1)
-    return world_to_local(pos[fut] - pos, yaw), np.ones(n, dtype=bool)
+def build_state_vector(df, cols, pitch_cols):
+    states = df[cols].to_numpy(dtype=np.float32)
+    if pitch_cols:
+        idx = [cols.index(c) for c in pitch_cols]
+        states[:, idx] /= SCAN_PITCH_SCALE_DEG
+    return states
 
+
+# ----------------------------------------------------------------------
+# maski waznosci
+# ----------------------------------------------------------------------
 
 def moving_mask(pos, window=STILL_WINDOW, thr=STILL_DIST_M):
-    n = len(pos)
-    fut = np.minimum(np.arange(n) + window, n - 1)
+    fut = np.minimum(np.arange(len(pos)) + window, len(pos) - 1)
     return np.hypot(*(pos[fut] - pos).T) >= thr
 
 
 def thin_still_runs(moving, keep_every=KEEP_EVERY_STILL):
+    """Zostawia co keep_every probke z dlugich serii bezruchu. Calkowite
+    wyrzucenie bezruchu odbiera modelowi jedyne przyklady 'stoje i musze
+    zawrocic'; zostawienie wszystkich zalewa loss powtorzeniami."""
     valid = moving.copy()
-    n = len(moving)
-    i = 0
+    n, i = len(moving), 0
     while i < n:
         if moving[i]:
             i += 1
@@ -113,139 +193,86 @@ def thin_still_runs(moving, keep_every=KEEP_EVERY_STILL):
     return valid
 
 
-def compute_rewards(df, grid_cell_size=GRID_CELL_SIZE):
+def label_masks(df, actions_m):
+    """Zwraca (valid, statystyki odrzucen)."""
     n = len(df)
-    rewards = np.zeros(n, dtype=np.float32)
-    pos = df[["posX", "posZ"]].to_numpy()
-    collisions = (df["collision"].to_numpy() if "collision" in df.columns
-                  else np.zeros(n, dtype=bool))
+    stats = {}
 
-    visited = set()
-    for i in range(n):
-        cell = (int(np.floor(pos[i, 0] / grid_cell_size)),
-                int(np.floor(pos[i, 1] / grid_cell_size)))
-        r = STEP_PENALTY
-        if cell not in visited:
-            visited.add(cell)
-            r += COVERAGE_REWARD
-        if collisions[i]:
-            r += COLLISION_PENALTY
-        rewards[i] = r
-    return rewards
+    ok = (df["expert_valid"].to_numpy().astype(bool)
+          if "expert_valid" in df.columns else np.ones(n, dtype=bool))
+    stats["expert_valid=0"] = int((~ok).sum())
 
+    mag = np.hypot(actions_m[:, 0], actions_m[:, 1])
+    m_mag = mag > 0.05
+    stats["dlugosc < 0.05 m"] = int((~m_mag).sum())
 
-def compute_return_to_go(rewards):
-    return np.cumsum(rewards[::-1])[::-1].astype(np.float32).copy()
+    ang = np.degrees(np.arctan2(actions_m[:, 0], actions_m[:, 1]))
+    m_ang = np.abs(ang) <= MAX_LABEL_ANGLE_DEG
+    stats[f"|kat| > {MAX_LABEL_ANGLE_DEG:.0f} deg"] = int((~m_ang).sum())
 
+    if "progress_along_route" in df.columns:
+        prog = df["progress_along_route"].to_numpy(dtype=np.float64)
+        jump = np.abs(np.r_[0.0, np.diff(prog)])
+        m_jump = jump <= MAX_PROGRESS_JUMP_M
+        stats[f"skok postepu > {MAX_PROGRESS_JUMP_M} m"] = int((~m_jump).sum())
+    else:
+        m_jump = np.ones(n, dtype=bool)
+        stats["skok postepu"] = "brak kolumny progress_along_route"
 
-def indexed_columns(df, prefix):
-    columns = sorted(
-        (c for c in df.columns if re.fullmatch(rf"{prefix}[0-9]+", c)),
-        key=lambda c: int(c[len(prefix):]),
-    )
-    expected = [f"{prefix}{i}" for i in range(len(columns))]
-    if columns != expected:
-        raise ValueError(f"Nieciagle indeksy kolumn {prefix} w CSV: {columns}")
-    return columns
-
-
-def get_state_columns(df):
-    telem_cols = indexed_columns(df, "telem_")
-    if not telem_cols:
-        raise ValueError("Brakuje kolumn telemetrii w CSV")
-    if EXCLUDE_POLICY_OUTPUTS:
-        dropped = [c for c in telem_cols if c in POLICY_OUTPUT_COLUMNS]
-        telem_cols = [c for c in telem_cols if c not in POLICY_OUTPUT_COLUMNS]
-        if not dropped:
-            warnings.warn("EXCLUDE_POLICY_OUTPUTS=True, ale w CSV nie ma zadnej "
-                          f"z kolumn {POLICY_OUTPUT_COLUMNS}.")
-
-    columns = (["posX", "posZ"] if INCLUDE_POSITION else []) + ["yaw"] + telem_cols
-    scan_pitch_cols = []
-
-    if INCLUDE_SCAN:
-        distances = indexed_columns(df, "scan_dist_")
-        ages = indexed_columns(df, "scan_age_")
-        if not distances and not ages:
-            warnings.warn("INCLUDE_SCAN=True, ale CSV nie zawiera scan_dist_* ani "
-                          "scan_age_*. Buduje stan bez profilu ToF.")
-        elif len(distances) != len(ages):
-            raise ValueError("CSV musi zawierac pary scan_dist_* i scan_age_* "
-                             "dla tych samych sektorow")
-        else:
-            columns += distances + ages
-            if INCLUDE_SCAN_PITCH:
-                pitches = indexed_columns(df, "scan_pitch_")
-                if not pitches:
-                    warnings.warn("INCLUDE_SCAN_PITCH=True, ale CSV nie zawiera "
-                                  "scan_pitch_*. Buduje stan bez pitcha skanu - "
-                                  "odleglosci z roznych pitchow beda "
-                                  "nierozroznialne w tym samym sektorze.")
-                elif len(pitches) != len(distances):
-                    raise ValueError("Liczba kolumn scan_pitch_* rozni sie od "
-                                     "scan_dist_*")
-                else:
-                    columns += pitches
-                    scan_pitch_cols = pitches
-
-    return columns, scan_pitch_cols
-
-
-def build_state_vector(df, columns, scan_pitch_cols):
-    states = df[columns].to_numpy(dtype=np.float32)
-
-    if scan_pitch_cols:
-        idx = [columns.index(c) for c in scan_pitch_cols]
-        states[:, idx] /= SCAN_PITCH_SCALE_DEG
-    return states
-
-
-def process_episode(csv_path: Path):
-    df = pd.read_csv(csv_path)
-    if len(df) < MIN_EPISODE_LENGTH:
-        print(f"  [pominieto] {csv_path.name}: za krotki ({len(df)})")
-        return None
+    if "deviation_from_route" in df.columns:
+        dev = df["deviation_from_route"].to_numpy(dtype=np.float64)
+        m_dev = dev <= MAX_DEVIATION_M
+        stats[f"odchylenie > {MAX_DEVIATION_M} m"] = int((~m_dev).sum())
+    else:
+        m_dev = np.ones(n, dtype=bool)
+        stats["odchylenie"] = "brak kolumny deviation_from_route"
 
     pos = df[["posX", "posZ"]].to_numpy(dtype=np.float64)
-    yaw = df["yaw"].to_numpy(dtype=np.float64)
+    m_move = thin_still_runs(moving_mask(pos))
+    stats["bezruch (po przerzedzeniu)"] = int((~m_move).sum())
 
-    has_expert = USE_EXPERT_LABEL and {"expert_x", "expert_z"} <= set(df.columns)
-    if has_expert:
-        actions_m = df[["expert_x", "expert_z"]].to_numpy(dtype=np.float64)
-        reached = (df["expert_valid"].to_numpy().astype(bool)
-                   if "expert_valid" in df.columns
-                   else np.ones(len(df), dtype=bool))
-        reached &= np.hypot(actions_m[:, 0], actions_m[:, 1]) > 0.05
-    elif USE_DISTANCE_RELABEL:
-        actions_m, reached = relabel_by_distance(pos, yaw)
-    else:
-        actions_m, reached = relabel_by_steps(pos, yaw)
+    valid = ok & m_mag & m_ang & m_jump & m_dev & m_move
+    return valid, stats
 
-    moving = moving_mask(pos)
-    valid = (thin_still_runs(moving) if has_expert else moving) & reached
-    valid_frac = valid.mean()
 
-    if valid_frac < MIN_VALID_FRACTION:
-        print(f"  [pominieto] {csv_path.name}: tylko {100 * valid_frac:.0f}% waznych "
-              f"probek (auto glownie stalo/napieralo na sciane)")
+# ----------------------------------------------------------------------
+
+def process_episode(path: Path):
+    df = pd.read_csv(path)
+    if ADD_DIRECTION_CHANNEL:
+        df["direction"] = -1.0 if REVERSE_MARKER in path.name else 1.0
+    if len(df) < MIN_EPISODE_LENGTH:
+        print(f"  [pominieto] {path.name}: za krotki ({len(df)} < {MIN_EPISODE_LENGTH})")
         return None
 
-    rewards = compute_rewards(df)
-    state_columns, scan_pitch_cols = get_state_columns(df)
+    if not {"expert_x", "expert_z"} <= set(df.columns):
+        raise ValueError(f"{path.name}: brak kolumn expert_x/expert_z. "
+                         "Droga A wymaga etykiet eksperckich.")
+
+    actions_m = df[["expert_x", "expert_z"]].to_numpy(dtype=np.float64)
+    valid, stats = label_masks(df, actions_m)
+
+    frac = valid.mean()
+    if frac < MIN_VALID_FRACTION:
+        print(f"  [pominieto] {path.name}: tylko {100*frac:.0f}% waznych probek")
+        for k, v in stats.items():
+            print(f"      odrzucone przez {k}: {v}")
+        return None
+
+    cols, pitch_cols = get_state_columns(df)
     return {
-        "states": build_state_vector(df, state_columns, scan_pitch_cols),
-        "state_columns": state_columns,
-        "actions_m": actions_m.astype(np.float32),  # (T, 2) W METRACH
-        "valid": valid,                             # (T,) bool - maska do lossu
-        "reached": reached,
-        "moving": moving,
-        "rewards": rewards,
-        "returns_to_go": compute_return_to_go(rewards),
+        "states": build_state_vector(df, cols, pitch_cols),
+        "state_columns": cols,
+        "actions_m": actions_m.astype(np.float32),
+        "valid": valid,
         "episode_length": len(df),
-        "source_file": csv_path.name,
-        "group": csv_path.name,
-        "n_collisions": int(df["collision"].sum()) if "collision" in df.columns else 0,
-        "expert_label": bool(has_expert),
+        "source_file": path.name,
+        # Grupa = SESJA, nie plik. EpisodeDirector nadaje instancePrefix kodujacy
+        # warunek (bc_fwd_clean_r003), wiec wszystkie chunki jednej sesji maja
+        # wspolna grupe. Bez tego podzial train/val w train_bc.py przecinal jeden
+        # ciagly przejazd i strata walidacyjna mierzyla interpolacje, nie generalizacje.
+        "group": path.name.split("_episode_")[0] if "_episode_" in path.name else path.name,
+        "reject_stats": stats,
     }
 
 
@@ -260,126 +287,181 @@ def decimate(traj, factor, phase):
 
 
 def expand_phases(trajectories):
+    """Decymacja 10x z zachowaniem wszystkich 10 faz - kazdy epizod daje 10
+    sekwencji przesunietych o jeden krok logu. 'group' zostaje wspolna, zeby
+    podzial train/val nie przeciekal."""
     if DECIMATE <= 1:
         return trajectories
     phases = range(DECIMATE) if KEEP_ALL_PHASES else [0]
     out = []
-    for traj in trajectories:
+    for t in trajectories:
         for ph in phases:
-            d = decimate(traj, DECIMATE, ph)
-            if d["episode_length"] >= 20:
+            d = decimate(t, DECIMATE, ph)
+            if d["episode_length"] >= MIN_DECIMATED_LENGTH:
                 out.append(d)
     return out
 
 
-def report_scan_health(trajectories, state_columns):
-    dist_idx = [i for i, c in enumerate(state_columns) if c.startswith("scan_dist_")]
-    age_idx = [i for i, c in enumerate(state_columns) if c.startswith("scan_age_")]
+def report_scan_health(trajectories, cols):
+    dist_idx = [i for i, c in enumerate(cols) if c.startswith("scan_dist_")]
+    age_idx = [i for i, c in enumerate(cols) if c.startswith("scan_age_")]
     if not dist_idx:
         return
     S = np.concatenate([t["states"] for t in trajectories])
-    nz = (S[:, dist_idx] > 0).sum(axis=1)
     ages = S[:, age_idx]
+    # Swiezosc liczona z WIEKU, nie z odleglosci. Po poprawce TofScanBuffer
+    # przeterminowany sektor ma dist = 1.0 (daleko), wiec warunek dist > 0 byl
+    # zawsze prawdziwy i metryka pokazywala 16/16 niezaleznie od stanu bufora.
+    fresh = (ages < 0.999).sum(axis=1)
     print(f"\nProfil ToF ({len(dist_idx)} sektorow):")
-    print(f"  niezerowych sektorow na krok: srednia={nz.mean():.1f}  "
-          f"mediana={np.median(nz):.0f}  min={nz.min()}  max={nz.max()}")
-    print(f"  wiek pomiaru: mediana={np.median(ages):.2f}  "
-          f"udzial sektorow z wiekiem 1.0 (przeterminowane): "
-          f"{100 * (ages >= 0.999).mean():.0f}%")
-    if nz.mean() < 2:
-        print("  UWAGA: bufor praktycznie nie akumuluje - sprawdz, czy TofScanBuffer")
-        print("  jest podpiety i czy wiezyczka sie obraca (kolumna turret_yaw_deg).")
+    print(f"  sektorow z POMIAREM na krok: srednia={fresh.mean():.1f} mediana={np.median(fresh):.0f} "
+          f"min={fresh.min()} max={fresh.max()}")
+    print(f"  udzial sektorow przeterminowanych (age>=0.999): {100*(ages >= 0.999).mean():.0f}%")
+    if fresh.mean() < 2:
+        print("  UWAGA: bufor nie akumuluje - sprawdz, czy wiezyczka omiata zakres.")
+
+
+def report_yolo_health(trajectories, cols):
+    if YOLO_MAX_SLOTS == 0:
+        return
+    S = np.concatenate([t["states"] for t in trajectories])
+    print(f"\nBlok YOLO ({YOLO_MAX_SLOTS} slotow):")
+    for slot in range(YOLO_MAX_SLOTS):
+        base = YOLO_FIRST_INDEX + slot * YOLO_FEATURES_PER_SLOT
+        conf_name = f"telem_{base + 4}"
+        if conf_name not in cols:
+            continue
+        conf = S[:, cols.index(conf_name)]
+        det = conf > 0
+        line = f"  slot {slot}: detekcja w {100 * det.mean():5.1f}% krokow"
+        door_name = f"telem_{base + 6}"          # flaga CLASS_DOOR
+        if door_name in cols:
+            door = S[:, cols.index(door_name)]
+            line += f", drzwi w {100 * (door > 0).mean():5.1f}%"
+        print(line)
+    if YOLO_MAX_SLOTS >= 3:
+        print("  UWAGA: slot 2 odpalal sie w 0.3% probek i dawal |z| = 44.7 - "
+              "rozwaz YOLO_MAX_SLOTS = 2")
+
+
+def report_degenerate_columns(trajectories, cols):
+    S = np.concatenate([t["states"] for t in trajectories]).astype(np.float64)
+    sd = S.std(axis=0)
+    mu = S.mean(axis=0)
+    z = np.abs((S - mu) / (sd + 1e-6)).max(axis=0)
+
+    dead = [cols[i] for i in np.where(sd < 1e-6)[0]]
+    spiky = [(cols[i], z[i]) for i in np.argsort(-z)[:5] if z[i] > 15]
+
+    print(f"\nKondycja wektora stanu ({len(cols)} wymiarow):")
+    print(f"  max |z| po normalizacji: {z.max():.1f}")
+    if dead:
+        print(f"  KOLUMNY STALE ({len(dead)}): {', '.join(dead)}")
+        print("    -> martwe wymiary, rozwaz wyciecie")
+    if spiky:
+        print("  KOLUMNY Z EKSTREMAMI (|z| > 15):")
+        for c, v in spiky:
+            print(f"    {c}: max|z|={v:.1f}")
+    if not dead and not spiky:
+        print("  brak kolumn stalych i brak ekstremow - OK")
 
 
 def main():
-    csv_files = sorted(Path(DATA_DIR).glob("*episode_*.csv"))
-    print(f"Znaleziono {len(csv_files)} plikow CSV")
-    if not csv_files:
+    files = sorted(Path(DATA_DIR).glob("*episode_*.csv"))
+    if FILE_FILTER:
+        before = len(files)
+        files = [f for f in files if FILE_FILTER in f.name]
+        print(f"FILE_FILTER = '{FILE_FILTER}': {before} -> {len(files)} plikow")
+    print(f"Znaleziono {len(files)} plikow CSV w {DATA_DIR}")
+    if not files:
         print("Sprawdz DATA_DIR.")
         return
 
     trajectories = []
-    for p in csv_files:
+    agg_stats = {}
+    for p in files:
         r = process_episode(p)
         if r is None:
             continue
         if trajectories and r["state_columns"] != trajectories[0]["state_columns"]:
-            raise ValueError(f"{p.name}: inny schemat stanu niz w poprzednich CSV. "
-                             "Rozdziel pliki z roznymi kolumnami telemetrii/skanu.")
+            raise ValueError(f"{p.name}: inny schemat stanu niz w poprzednich CSV.")
+        for k, v in r["reject_stats"].items():
+            if isinstance(v, int):
+                agg_stats[k] = agg_stats.get(k, 0) + v
         trajectories.append(r)
-        print(f"  {p.name}: {r['episode_length']} krokow, "
-              f"wazne={100 * r['valid'].mean():.0f}%, "
-              f"suma nagrod={r['rewards'].sum():.1f}, "
-              f"kolizje={r['n_collisions']}")
+        print(f"  {p.name}: {r['episode_length']} krokow, wazne={100*r['valid'].mean():.0f}%")
 
     if not trajectories:
         print("Zaden epizod nie przeszedl - nic nie zapisano.")
         return
 
+    total_raw = sum(t["episode_length"] for t in trajectories)
+    print(f"\n--- Odrzucone probki (na {total_raw} krokow surowych) ---")
+    for k, v in sorted(agg_stats.items(), key=lambda kv: -kv[1]):
+        print(f"  {k:32s} {v:6d}  ({100*v/total_raw:.1f}%)")
+
     if DECIMATE > 1:
         before = len(trajectories)
         trajectories = expand_phases(trajectories)
-        print(f"\nDecymacja {DECIMATE}x ({'wszystkie fazy' if KEEP_ALL_PHASES else 'faza 0'}): "
-              f"{before} epizodow -> {len(trajectories)} sekwencji po "
-              f"~{trajectories[0]['episode_length']} krokow "
-              f"({len(set(t['group'] for t in trajectories))} grup)")
+        n_groups = len({t["group"] for t in trajectories})
+        print(f"\nDecymacja {DECIMATE}x: {before} epizodow -> {len(trajectories)} sekwencji "
+              f"(~{trajectories[0]['episode_length']} krokow, {n_groups} grup)")
 
     all_valid = np.concatenate([t["actions_m"][t["valid"]] for t in trajectories])
+    if len(all_valid) == 0:
+        raise RuntimeError("Zero waznych probek po filtrach.")
 
-    use_expert = all(t.get("expert_label") for t in trajectories)
-    action_scale = float(np.hypot(all_valid[:, 0], all_valid[:, 1]).mean()
-                         if use_expert else all_valid.std())
+    mag = np.hypot(all_valid[:, 0], all_valid[:, 1])
+    action_scale = float(mag.mean())
     if action_scale < 1e-6:
-        raise RuntimeError("std akcji ~0 - cos jest powaznie nie tak z danymi.")
+        raise RuntimeError("Srednia dlugosc akcji ~0 - dane sa zle.")
 
     for t in trajectories:
         t["actions"] = (t["actions_m"] / action_scale).astype(np.float32)
 
-    total = sum(t["episode_length"] for t in trajectories)
+    cols = trajectories[0]["state_columns"]
     n_valid = sum(int(t["valid"].sum()) for t in trajectories)
-    mag = np.hypot(all_valid[:, 0], all_valid[:, 1])
-    state_columns = trajectories[0]["state_columns"]
+    total = sum(t["episode_length"] for t in trajectories)
+    ang = np.degrees(np.arctan2(all_valid[:, 0], all_valid[:, 1]))
 
     print(f"\n--- Podsumowanie ---")
-    print(f"Wariant: INCLUDE_POSITION={INCLUDE_POSITION}, INCLUDE_SCAN={INCLUDE_SCAN}, "
-          f"INCLUDE_SCAN_PITCH={INCLUDE_SCAN_PITCH}, "
-          f"EXCLUDE_POLICY_OUTPUTS={EXCLUDE_POLICY_OUTPUTS}")
-    if EXCLUDE_POLICY_OUTPUTS:
-        print(f"  Usunieto ze stanu: {', '.join(POLICY_OUTPUT_COLUMNS)} "
-              "(wyjscia polityki PPO - przeciek etykiety)")
-    else:
-        print("  UWAGA: stan zawiera wyjscia polityki PPO. Model moze nauczyc sie "
-              "przepisywac\n  poprzednia decyzje zamiast czytac otoczenie.")
-    print(f"state_dim={len(state_columns)}, yaw_index={state_columns.index('yaw')}")
-    print(f"Zrodlo etykiet: "
-          f"{'waypoint eksperta (expert_x/expert_z)' if use_expert else 'relabeling z ruchu auta'}")
-    print(f"Epizodow: {len(trajectories)}, krokow: {total}")
-    print(f"Waznych probek: {n_valid} ({100 * n_valid / total:.0f}%)")
-    print(f"ACTION_SCALE (metry): {action_scale:.4f}")
-    print(f"Dlugosc akcji [m]: mediana={np.median(mag):.2f}, "
-          f"p90={np.quantile(mag, 0.9):.2f}, max={mag.max():.2f}")
-    print(f"Udzial akcji 'do tylu' (local_z < 0): "
-          f"{100 * (all_valid[:, 1] < 0).mean():.0f}%")
+    print(f"state_dim={len(cols)}  yaw_index={cols.index('yaw')}")
+    if ADD_DIRECTION_CHANNEL:
+        n_rev = sum(1 for t in trajectories if REVERSE_MARKER in t["source_file"])
+        print(f"  kanal kierunku: kolumna 0, {len(trajectories) - n_rev} sekwencji +1 "
+              f"/ {n_rev} sekwencji -1")
+    print(f"  wariant: pos={INCLUDE_POSITION} scan={INCLUDE_SCAN} "
+          f"scan_pitch={INCLUDE_SCAN_PITCH} yolo_slotow={YOLO_MAX_SLOTS}")
+    print(f"Sekwencji: {len(trajectories)}, krokow: {total}, waznych: {n_valid} "
+          f"({100*n_valid/total:.0f}%)")
+    print(f"ACTION_SCALE = {action_scale:.4f} m")
+    print(f"Dlugosc etykiety [m]: mediana={np.median(mag):.2f} p90={np.quantile(mag,0.9):.2f} "
+          f"max={mag.max():.2f}")
+    print(f"Kat etykiety [deg]: std={ang.std():.1f} p5={np.percentile(ang,5):.0f} "
+          f"p95={np.percentile(ang,95):.0f} |kat|>45: {100*(np.abs(ang)>45).mean():.1f}%")
 
-    report_scan_health(trajectories, state_columns)
-
-    rtg = np.concatenate([t["returns_to_go"] for t in trajectories])
-    print(f"\nReturn-to-go obserwowany w danych (do wpisania w DTInference):")
-    print(f"  zakres [{rtg.min():.0f}, {rtg.max():.0f}], mediana={np.median(rtg):.1f}")
-    print(f"  initialTargetReturn ustaw blisko gornego konca, np. "
-          f"{np.percentile(rtg, 90):.0f} - wyzej to ekstrapolacja poza dane.")
+    report_scan_health(trajectories, cols)
+    report_yolo_health(trajectories, cols)
+    report_degenerate_columns(trajectories, cols)
 
     with open(OUTPUT_FILE, "wb") as f:
-        pickle.dump({"trajectories": trajectories,
-                     "state_columns": state_columns,
-                     "include_position": INCLUDE_POSITION,
-                     "include_scan": INCLUDE_SCAN,
-                     "include_scan_pitch": INCLUDE_SCAN_PITCH,
-                     "exclude_policy_outputs": EXCLUDE_POLICY_OUTPUTS,
-                     "scan_pitch_scale_deg": SCAN_PITCH_SCALE_DEG,
-                     "action_scale": action_scale,
-                     "waypoint_dist": WAYPOINT_DIST if USE_DISTANCE_RELABEL else None},
-                    f)
+        pickle.dump({
+            "trajectories": trajectories,
+            "state_columns": cols,
+            "action_scale": action_scale,
+            "include_position": INCLUDE_POSITION,
+            "include_scan": INCLUDE_SCAN,
+            "include_scan_pitch": INCLUDE_SCAN_PITCH,
+            "exclude_policy_outputs": EXCLUDE_POLICY_OUTPUTS,
+            "yolo_max_slots": YOLO_MAX_SLOTS,
+            "yolo_first_index": YOLO_FIRST_INDEX,
+            "yolo_features_per_slot": YOLO_FEATURES_PER_SLOT,
+            "yolo_drop_offsets": list(YOLO_DROP_OFFSETS),
+            "scan_pitch_scale_deg": SCAN_PITCH_SCALE_DEG,
+            "add_direction_channel": ADD_DIRECTION_CHANNEL,
+            "max_label_angle_deg": MAX_LABEL_ANGLE_DEG,
+            "decimate": DECIMATE,
+        }, f)
     print(f"\nZapisano do {OUTPUT_FILE}")
 
 

@@ -35,7 +35,7 @@ public class NoisyExpertDriver : MonoBehaviour
     [Tooltip("Szansa, ze zamiast zwyklego szumu wylosuje sie duze odchylenie. "
            + "Takie zdarzenia wypychaja auto do sasiednich pomieszczen - czyli tam, "
            + "gdzie etykieta wzdluz sciezki NavMesh faktycznie cos wnosi.")]
-    [Range(0f, 1f)] public float bigDeviationChance = 0.15f;
+    [Range(0f, 1f)] public float bigDeviationChance = 0.08f;
     public float bigDeviationDeg = 70f;
 
     [Header("NavMesh")]
@@ -74,7 +74,11 @@ public class NoisyExpertDriver : MonoBehaviour
         scaleFrom = scaleTo = 1f;
     }
 
-    void Update()
+    // LateUpdate, nie Update: czytamy autoExplorer.expertLocalWaypoint, ktore
+    // AutoExplorer liczy w swoim Update(). Kolejnosc wywolan Update miedzy
+    // MonoBehaviour jest nieokreslona, wiec wczesniej dostawalismy losowo
+    // wartosc z tej albo z poprzedniej klatki.
+    void LateUpdate()
     {
         if (!active || autoExplorer == null || !autoExplorer.isExploring) return;
         if (carTransform == null || target == null) return;

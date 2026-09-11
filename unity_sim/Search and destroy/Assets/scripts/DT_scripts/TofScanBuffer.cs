@@ -17,7 +17,11 @@ public class TofScanBuffer : MonoBehaviour
     [Tooltip("Ile sektorow ma swiezy pomiar. Jesli utrzymuje sie blisko 1, wiezyczka nie omiata zakresu i profil nie powstaje.")]
     public int freshSectors = 0;
 
-    private const float MaxDistanceMm = 4000f;
+    // 3000, nie 4000: Chassis.GetTelemetryState normalizuje ten SAM czujnik
+    // przez maxTof = 3000. Dwie skale jednego czujnika w jednym wektorze stanu
+    // to niepotrzebna niespojnosc. NIE zmieniaj maxTof w Chassis - telem_10
+    // jest czescia 40-wymiarowej obserwacji PPO i zepsulby sie kierowca.
+    private const float MaxDistanceMm = 3000f;
     private float[] distancesMm;
     private float[] pitchesDeg;
     private float[] measurementTimes;
@@ -95,14 +99,20 @@ public class TofScanBuffer : MonoBehaviour
         freshSectors = n;
     }
 
+    /// <summary>Znormalizowane odleglosci. Sektor bez swiezego pomiaru zwraca
+    /// 1.0 = DALEKO. Wczesniej zwracal 0.0, co po normalizacji znaczy
+    /// "przeszkoda w odleglosci 0 mm" - przeterminowany pomiar wygladal dla
+    /// modelu jak sciana przy zderzaku. To bylo odwrocenie znaku, nie brak
+    /// informacji; na zebranych danych dotyczylo 13-15% sektorow.</summary>
     public float[] GetNormalizedDistances()
     {
         EnsureStorage();
         float now = Time.time;
         float[] snapshot = new float[SectorCount];
         for (int s = 0; s < snapshot.Length; s++)
-            if (IsFresh(s, now))
-                snapshot[s] = Mathf.Clamp01(distancesMm[s] / MaxDistanceMm);
+            snapshot[s] = IsFresh(s, now)
+                ? Mathf.Clamp01(distancesMm[s] / MaxDistanceMm)
+                : 1f;
         return snapshot;
     }
 

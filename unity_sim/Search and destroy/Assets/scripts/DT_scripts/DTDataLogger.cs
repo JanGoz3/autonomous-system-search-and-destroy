@@ -16,7 +16,9 @@ public struct DTStepData
     public bool collision;
     public float expertX;       // ETYKIETA: wektor do pursuit pointa w ukladzie auta
     public float expertZ;
-    public bool expertValid;    // czy AutoExplorer mial w tym kroku wyznaczona trase
+    public bool expertValid;    // czy etykieta nadaje sie do lossu (ExpertLabelUsable)
+    public float progressAlongRoute;   // rzut auta na trase, w metrach po luku
+    public float deviationFromRoute;   // odleglosc auta od trasy, w metrach
     public float turretPitchDeg;
     public float turretYawDeg;
     public float[] scanDistances;
@@ -49,7 +51,7 @@ public class DTDataLogger : MonoBehaviour
 
     [Header("Restart przy zaklinowaniu")]
     [Tooltip("Fragmenty krotsze niz tyle krokow sa ODRZUCANE zamiast zapisywane. Przy decymacji 10x to 150 krokow = 15 decyzji modelu - ponizej tego fragment nie ma wartosci jako trajektoria. Uwaga: filtrowanie tutaj systematycznie usuwa POCZATKI trajektorii, wiec nie ustawiaj tego wysoko.")]
-    public int minEpisodeSteps = 150;
+    public int minEpisodeSteps = 200;
 
     [Header("Runtime State (read-only)")]
     public bool isRecording = false;
@@ -138,10 +140,19 @@ public class DTDataLogger : MonoBehaviour
 
         Vector2 expert = Vector2.zero;
         bool expertOk = false;
+        float progress = 0f, deviation = 0f;
         if (autoExplorer != null && autoExplorer.isExploring)
         {
             expert = autoExplorer.expertLocalWaypoint;
-            expertOk = true;
+
+            // BYLO: expertOk = true bezwarunkowo. Kolumna expert_valid byla wiec
+            // stale rowna 1 i filtr etykiet fallbackowych nie dzialal nigdy.
+            // ExpertLabelUsable sprawdza pelna sciezke NavMesh, niezerowa dlugosc
+            // ORAZ |kat| <= maxLabelAngleDeg.
+            expertOk = autoExplorer.ExpertLabelUsable;
+
+            progress = autoExplorer.progressAlongRoute;
+            deviation = autoExplorer.deviationFromRoute;
         }
 
         float[] telemetrySnapshot = (float[])chassis.GetTelemetryState().Clone();
@@ -161,6 +172,8 @@ public class DTDataLogger : MonoBehaviour
             expertX = expert.x,
             expertZ = expert.y,
             expertValid = expertOk,
+            progressAlongRoute = progress,
+            deviationFromRoute = deviation,
             turretPitchDeg = turretAngles.pitch,
             turretYawDeg = turretAngles.yaw,
             scanDistances = tofScanBuffer != null ? tofScanBuffer.GetNormalizedDistances() : null,
@@ -295,7 +308,9 @@ public class DTDataLogger : MonoBehaviour
         var sb = new StringBuilder();
         sb.Append("t,posX,posZ,yaw");
         for (int i = 0; i < telemetryCount; i++) sb.Append($",telem_{i}");
-        sb.Append(",collision,expert_x,expert_z,expert_valid,turret_pitch_deg,turret_yaw_deg");
+        sb.Append(",collision,expert_x,expert_z,expert_valid");
+        sb.Append(",progress_along_route,deviation_from_route");
+        sb.Append(",turret_pitch_deg,turret_yaw_deg");
         for (int s = 0; s < scanCount; s++) sb.Append($",scan_dist_{s}");
         for (int s = 0; s < scanCount; s++) sb.Append($",scan_age_{s}");
         for (int s = 0; s < scanCount; s++) sb.Append($",scan_pitch_{s}");
@@ -314,6 +329,8 @@ public class DTDataLogger : MonoBehaviour
             sb.Append(',').Append(s.expertX.ToString(inv));
             sb.Append(',').Append(s.expertZ.ToString(inv));
             sb.Append(',').Append(s.expertValid ? "1" : "0");
+            sb.Append(',').Append(s.progressAlongRoute.ToString(inv));
+            sb.Append(',').Append(s.deviationFromRoute.ToString(inv));
             sb.Append(',').Append(s.turretPitchDeg.ToString(inv));
             sb.Append(',').Append(s.turretYawDeg.ToString(inv));
             for (int i = 0; i < scanCount; i++)

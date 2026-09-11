@@ -19,8 +19,10 @@ public class AutoExplorer : MonoBehaviour
     public float lookAheadDistance = 1.5f;
     [Tooltip("Jak daleko do przodu szukac rzutu auta na trase przy kazdej klatce.")]
     public float searchForward = 6f;
-    [Tooltip("Ile wstecz. Male, zeby auto nie zrzutowalo sie na wczesniejszy fragment trasy w rownoleglym korytarzu.")]
-    public float searchBackward = 1f;
+    [Tooltip("Ile wstecz. 3 m, nie 1 m: przy postepie, ktory MOZE sie cofnac "
+           + "(progressRegressionMaxDeviation), okno szukania rzutu musi obejmowac obszar "
+           + "za autem, inaczej auto cofajace sie po scietym zakrecie nie ma gdzie sie zrzutowac.")]
+    public float searchBackward = 3f;
     public float searchStep = 0.2f;
     [Tooltip("O ile metrow ponad faktycznie przejechany dystans postep moze wzrosnac w jednej klatce.")]
     public float progressSlack = 0.3f;
@@ -38,6 +40,15 @@ public class AutoExplorer : MonoBehaviour
     public float pathUpdateInterval = 0.05f;
     [Tooltip("Promien, w jakim szukamy najblizszego punktu NavMesh dla pozycji auta i celu.")]
     public float navSampleRadius = 1.5f;
+
+    [Header("Jakosc etykiety")]
+    [Tooltip("Ponizej tego odchylenia od trasy postep na trasie moze sie COFNAC. Powyzej "
+           + "trzymamy monotonicznosc, zeby rzut nie przeskoczyl na rownolegly korytarz.")]
+    public float progressRegressionMaxDeviation = 1.0f;
+    [Tooltip("Etykieta o |kacie| wiekszym niz tyle stopni jest oznaczana jako NIEUZYWALNA "
+           + "(ExpertLabelUsable = false). Auto z kierownica Ackermanna nie wykona komendy "
+           + "'za siebie'. Ustaw rowno z MAX_LABEL_ANGLE_DEG w build_bc_dataset.py.")]
+    public float maxLabelAngleDeg = 70f;
 
     [Header("Tryb pracy")]
     [Tooltip("Gdy false, AutoExplorer LICZY expertLocalWaypoint, ale NIE rusza obiektu target. "
@@ -83,6 +94,13 @@ public class AutoExplorer : MonoBehaviour
     [Tooltip("Udzial klatek, w ktorych sciezka byla niepelna. Wysokie wartosci = trasa wychodzi "
            + "poza NavMesh albo auto ciagle laduje w miejscach bez dojazdu.")]
     public float pathFailRate = 0f;
+    [Tooltip("Kat etykiety w stopniach: 0 = prosto, dodatni = w prawo. NAJWAZNIEJSZE POLE "
+           + "przy walidacji trasy - nie moze zostawac powyzej maxLabelAngleDeg dluzej niz "
+           + "ulamek sekundy. Serie po kilka sekund oznaczaja nieprzejezdny narozník.")]
+    public float expertAngleDeg = 0f;
+    [Tooltip("Udzial klatek z etykieta nieuzywalna. Po zaokragleniu narozników powinno "
+           + "zejsc ponizej 0.03; na surowej trasie bylo 0.12-0.15.")]
+    public float labelRejectRate = 0f;
 
     private float stuckTimer = 0f;
     private float graceTimer = 0f;
@@ -98,6 +116,19 @@ public class AutoExplorer : MonoBehaviour
 
     public Vector3 ExpertWorldWaypoint => expertWorldWaypointRaw;
     public bool StuckThisFrame { get; private set; }
+
+    /// <summary>Czy etykieta z tej klatki nadaje sie do lossu. Czytane przez
+    /// DTDataLogger i zapisywane do kolumny expert_valid.
+    ///
+    /// Wczesniej logger ustawial expertOk = true bezwarunkowo, gdy isExploring,
+    /// wiec kolumna expert_valid byla stale rowna 1 i filtr etykiet fallbackowych
+    /// (brak pelnej sciezki NavMesh) nie dzialal nigdy.</summary>
+    public bool ExpertLabelUsable =>
+        expertPathValid
+        && expertLocalWaypoint.magnitude > 0.05f
+        && Mathf.Abs(expertAngleDeg) <= maxLabelAngleDeg;
+
+    private int labelFrames = 0, labelRejects = 0;
 
 
     void Reset()
@@ -148,6 +179,9 @@ public class AutoExplorer : MonoBehaviour
         pathFails = 0;
         pathFailRate = 0f;
         pathTimer = 0f;
+        labelFrames = 0;
+        labelRejects = 0;
+        labelRejectRate = 0f;
         isExploring = true;
 
         RecomputeWorldWaypoint();
@@ -162,6 +196,14 @@ public class AutoExplorer : MonoBehaviour
         if (pathCalls > 0)
             Debug.Log($"[AutoExplorer] Sciezka NavMesh: {pathFails}/{pathCalls} nieudanych "
                     + $"({100f * pathFails / pathCalls:F1}%)");
+        if (labelFrames > 0)
+        {
+            float pct = 100f * labelRejects / labelFrames;
+            string verdict = pct < 3f ? "OK"
+                : "ZA DUZO - zaokraglij narozniki trasy (CoverageRoute -> Zaokraglij ostre narozniki)";
+            Debug.Log($"[AutoExplorer] Etykiety nieuzywalne: {labelRejects}/{labelFrames} "
+                    + $"({pct:F1}%) - {verdict}");
+        }
     }
 
     public void RespawnOnRoute()
@@ -240,11 +282,19 @@ public class AutoExplorer : MonoBehaviour
             lastProjectionPos = carTransform.position;
         }
 
-        if (routeLength > 1f && Mathf.FloorToInt(bestD / routeLength)
-                              > Mathf.FloorToInt(progressAlongRoute / routeLength))
+        if (routeLength > 1f && bestD > progressAlongRoute
+            && Mathf.FloorToInt(bestD / routeLength)
+             > Mathf.FloorToInt(progressAlongRoute / routeLength))
             lapsCompleted++;
 
-        progressAlongRoute = Mathf.Max(progressAlongRoute, bestD);
+        // Monotoniczny postep byl przyczyna 15% niewykonalnych etykiet: po scietym
+        // zakrecie pursuit point zostawal ZA autem, a auto z kierownica Ackermanna
+        // nie potrafi obrocic sie w miejscu - na zebranych danych dawalo to serie
+        // po ~75 krokow (7.5 s) z etykieta "jedz do tylu".
+        if (deviationFromRoute <= progressRegressionMaxDeviation)
+            progressAlongRoute = bestD;                        // wolno sie cofnac
+        else
+            progressAlongRoute = Mathf.Max(progressAlongRoute, bestD);
     }
 
     private float ProjectGlobally()
@@ -322,6 +372,13 @@ public class AutoExplorer : MonoBehaviour
             Quaternion.Euler(0f, carTransform.eulerAngles.y, 0f))
             * Flat(expertWorldWaypointRaw - carTransform.position);
         expertLocalWaypoint = new Vector2(local.x, local.z);
+
+        expertAngleDeg = Mathf.Atan2(expertLocalWaypoint.x, expertLocalWaypoint.y)
+                       * Mathf.Rad2Deg;
+
+        labelFrames++;
+        if (!ExpertLabelUsable) labelRejects++;
+        labelRejectRate = labelFrames > 0 ? (float)labelRejects / labelFrames : 0f;
 
         if (driveTarget)
             target.position = expertWorldWaypointRaw + new Vector3(0, 0.15f, 0);

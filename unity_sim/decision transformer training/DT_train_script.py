@@ -1,160 +1,282 @@
-import argparse
 import pickle
-import random
 
 import numpy as np
 import torch
+import torch.nn as nn
 
-from models.DecisionTransformer.decision_transformer import DecisionTransformer, discount_cumsum
+from models.DecisionTransformer.decision_transformer import WaypointTransformer
+
+DATASET_FILE = "bc_dataset_pos0_scan1p_noyolo.pkl"
+CHECKPOINT_FILE = "bc_ckpt_waypoint.pt"
+
+CONTEXT_LENGTH = 20
+HIDDEN_SIZE = 128
+N_LAYER = 3
+N_HEAD = 4
+DROPOUT = 0.1
+
+N_DIR_BINS = 36
+MAG_WEIGHT = 1.0
+LABEL_SMOOTH = 0.15
+
+BATCH_SIZE = 64
+LEARNING_RATE = 3e-4
+WEIGHT_DECAY = 1e-4
+GRAD_NORM_CLIP = 1.0
+WARMUP_ITERS = 200
+NUM_TRAIN_ITERS = 8000
+
+LOG_EVERY = 200
+VAL_EVERY = 200
+VAL_BATCHES = 16
+EARLY_STOP_PATIENCE = 15       # w jednostkach VAL_EVERY
+
+NUM_HELDOUT_GROUPS = 4
+SPLIT_SEED = 42
+
+USE_YAW_SINCOS = True
+
+DEVICE = ("cuda" if torch.cuda.is_available()
+          else "mps" if torch.backends.mps.is_available() else "cpu")
+
+
+def load_dataset(path):
+    with open(path, "rb") as f:
+        d = pickle.load(f)
+    return d["trajectories"], d["action_scale"], d["state_columns"]
+
+
+def apply_yaw_sincos(trajectories, yaw_index):
+    """yaw w stopniach -> (sin, cos). Musi byc odtworzone identycznie w grafie
+    ONNX, bo Unity podaje surowy yaw."""
+    for t in trajectories:
+        s = t["states"]
+        yaw = np.radians(s[:, yaw_index].astype(np.float64))
+        t["states"] = np.column_stack([
+            s[:, :yaw_index],
+            np.sin(yaw).astype(np.float32),
+            np.cos(yaw).astype(np.float32),
+            s[:, yaw_index + 1:],
+        ]).astype(np.float32)
+
+
+def compute_state_normalization(trajectories):
+    S = np.concatenate([t["states"] for t in trajectories], axis=0)
+    return S.mean(0).astype(np.float32), (S.std(0) + 1e-6).astype(np.float32)
+
+
+def get_batch(trajectories, batch_size, K, state_dim, act_dim,
+              state_mean, state_std, device, rng):
+    lengths = np.array([t["states"].shape[0] for t in trajectories], dtype=np.float64)
+    inds = rng.choice(len(trajectories), size=batch_size, p=lengths / lengths.sum())
+
+    s_l, a_l, m_l, v_l = [], [], [], []
+    for idx in inds:
+        traj = trajectories[idx]
+        n = traj["states"].shape[0]
+
+        te = rng.randint(0, n)                 # indeks "teraz"
+        ts = max(0, te - K + 1)
+
+        s = (traj["states"][ts:te + 1] - state_mean) / state_std
+        a = traj["actions"][ts:te + 1]
+        v = traj["valid"][ts:te + 1].astype(np.float32)
+
+        tlen = s.shape[0]
+        pad = K - tlen
+        z = lambda shape: np.zeros(shape, dtype=np.float32)
+
+        s_l.append(np.concatenate([z((pad, state_dim)), s]))
+        a_l.append(np.concatenate([z((pad, act_dim)), a]))
+        m_l.append(np.concatenate([z((pad,)), np.ones(tlen, dtype=np.float32)]))
+        v_l.append(np.concatenate([z((pad,)), v]))
+
+    to = lambda arr: torch.tensor(np.stack(arr), dtype=torch.float32, device=device)
+    return to(s_l), to(a_l), to(m_l), to(v_l)
+
+
+@torch.no_grad()
+def angular_metrics(model, s, m, a, lm, n_bins):
+    """Sredni i medianowy blad kierunku w stopniach + trafienia w kubelek."""
+    logits, mag = model.heads(s, m)
+    centers = model.bin_centers
+    pred_ang = centers[logits.argmax(dim=-1)]
+    tgt_ang = torch.atan2(a[..., 0], a[..., 1])
+
+    d = torch.atan2(torch.sin(pred_ang - tgt_ang), torch.cos(pred_ang - tgt_ang))
+    d = d.abs() * 180.0 / np.pi
+
+    sel = lm > 0
+    if sel.sum() == 0:
+        return float("nan"), float("nan"), float("nan"), float("nan")
+    dv = d[sel]
+    mag_err = (mag[sel] - a[..., :][sel].norm(dim=-1)).abs()
+    return (dv.mean().item(), dv.median().item(),
+            (dv <= 15.0).float().mean().item(), mag_err.mean().item())
+
+
+@torch.no_grad()
+def report_by_turn_bucket(model, trajectories, args, rng, action_scale, n_batches=40):
+    """Rozbicie bledu po WIELKOSCI zakretu.
+
+    Zagregowana celnosc jest zdominowana przez prosta - linia bazowa 'zawsze
+    prosto' trafia w wiekszosc probek. O przejechaniu okrazenia decyduja
+    wylacznie zakrety, wiec to jest metryka, na ktora trzeba patrzec.
+    """
+    model.eval()
+    tgt_all, err_all = [], []
+    for _ in range(n_batches):
+        s, a, m, v = get_batch(trajectories, *args, rng)
+        lm = (m * v) > 0
+        logits, _ = model.heads(s, m)
+        pred = model.bin_centers[logits.argmax(dim=-1)]
+        tgt = torch.atan2(a[..., 0], a[..., 1])
+        d = torch.atan2(torch.sin(pred - tgt), torch.cos(pred - tgt)).abs() * 180 / np.pi
+        tgt_all.append((tgt[lm].abs() * 180 / np.pi).cpu().numpy())
+        err_all.append(d[lm].cpu().numpy())
+
+    t = np.concatenate(tgt_all)
+    e = np.concatenate(err_all)
+    edges = [(0, 10), (10, 25), (25, 45), (45, 70)]
+
+    print("\n--- Blad kierunku wzgledem wielkosci zakretu (walidacja) ---")
+    print(f"{'|kat celu|':>14} {'probek':>8} {'udzial':>7} {'sr. blad':>10} "
+          f"{'med.':>7} {'<=15 deg':>9} {'baza':>7}")
+    for lo, hi in edges:
+        sel = (t >= lo) & (t < hi)
+        if sel.sum() == 0:
+            continue
+        # linia bazowa 'zawsze prosto' = blad rowny samemu katowi celu
+        print(f"{lo:5.0f}-{hi:<3.0f} deg {sel.sum():8d} {100*sel.mean():6.1f}% "
+              f"{e[sel].mean():9.1f} deg {np.median(e[sel]):6.1f} "
+              f"{100*(e[sel] <= 15).mean():8.0f}% {t[sel].mean():6.1f}")
+    print("  kolumna 'baza' = sredni blad polityki 'zawsze prosto' w tym kubelku")
+    turns = t >= 25
+    if turns.sum():
+        print(f"\n  NA ZAKRETACH (>=25 deg): sredni blad {e[turns].mean():.1f} deg, "
+              f"trafien <=15 deg {100*(e[turns] <= 15).mean():.0f}% "
+              f"(baza: {t[turns].mean():.1f} deg, 0%)")
 
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--dataset", type=str, default="dt_dataset.pkl",
-                         help="sciezka do .pkl (np. dt_sanity_dataset.pkl albo dt_dataset.pkl). "
-                              "Domyslnie: dt_dataset.pkl")
-    parser.add_argument("--K", type=int, default=20, help="dlugosc kontekstu (okno sekwencji)")
-    parser.add_argument("--batch_size", type=int, default=64)
-    parser.add_argument("--embed_dim", type=int, default=128)
-    parser.add_argument("--n_layer", type=int, default=3)
-    parser.add_argument("--n_head", type=int, default=1)
-    parser.add_argument("--dropout", type=float, default=0.1)
-    parser.add_argument("--learning_rate", type=float, default=1e-4)
-    parser.add_argument("--weight_decay", type=float, default=1e-4)
-    parser.add_argument("--warmup_steps", type=int, default=1000)
-    parser.add_argument("--max_iters", type=int, default=10)
-    parser.add_argument("--num_steps_per_iter", type=int, default=200)
-    parser.add_argument("--scale", type=float, default=None,
-                         help="normalizacja returns/rewards. Jesli None, liczona automatycznie z danych.")
-    parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
-    parser.add_argument("--save_path", type=str, default="car_dt_model.pt")
-    args = parser.parse_args()
+    trajectories, action_scale, state_columns = load_dataset(DATASET_FILE)
+    yaw_index = state_columns.index("yaw")
+    if USE_YAW_SINCOS:
+        apply_yaw_sincos(trajectories, yaw_index)
 
-    device = args.device
-    print(f"Uzywam urzadzenia: {device}")
+    groups = sorted({t["group"] for t in trajectories})
+    rng_split = np.random.RandomState(SPLIT_SEED)
+    perm = rng_split.permutation(len(groups))
+    n_val = min(NUM_HELDOUT_GROUPS, max(1, len(groups) // 5))
+    held = {groups[i] for i in perm[:n_val]}
 
-    with open(args.dataset, "rb") as f:
-        trajectories = pickle.load(f)
+    val_traj = [t for t in trajectories if t["group"] in held]
+    train_traj = [t for t in trajectories if t["group"] not in held]
+    if not val_traj or not train_traj:
+        raise RuntimeError(f"Podzial nie wyszedl: {len(groups)} grup. "
+                           "Zbierz wiecej epizodow albo zmniejsz NUM_HELDOUT_GROUPS.")
 
-    state_dim = trajectories[0]["observations"].shape[1]
+    state_dim = trajectories[0]["states"].shape[1]
     act_dim = trajectories[0]["actions"].shape[1]
-    max_ep_len = max(len(t["rewards"]) for t in trajectories) + 1
+    state_mean, state_std = compute_state_normalization(train_traj)
 
-    for traj in trajectories:
-        if "returns_to_go" not in traj:
-            traj["returns_to_go"] = discount_cumsum(traj["rewards"], gamma=1.0)
+    print(f"Urzadzenie: {DEVICE}")
+    print(f"Dataset: {DATASET_FILE}")
+    print(f"  state_dim={state_dim} (po sin/cos yaw), act_dim={act_dim}, "
+          f"action_scale={action_scale:.4f} m")
+    print(f"  trening: {len(train_traj)} sekwencji, walidacja: {len(val_traj)} "
+          f"({len(groups)} grup, odlozone: {sorted(held)})")
 
-    traj_lens = np.array([len(t["rewards"]) for t in trajectories])
-    returns = np.array([t["rewards"].sum() for t in trajectories])
+    # trywialna linia bazowa: zawsze prosto
+    all_a = np.concatenate([t["actions"][t["valid"]] for t in train_traj])
+    base = np.abs(np.degrees(np.arctan2(all_a[:, 0], all_a[:, 1])))
+    print(f"  linia bazowa 'zawsze prosto': sredni blad kierunku {base.mean():.1f} deg, "
+          f"trafien <=15 deg {100*(base <= 15).mean():.0f}%")
 
-    states_concat = np.concatenate([t["observations"] for t in trajectories], axis=0)
-    state_mean = np.mean(states_concat, axis=0)
-    state_std = np.std(states_concat, axis=0) + 1e-6
+    model = WaypointTransformer(
+        state_dim=state_dim, context_length=CONTEXT_LENGTH, hidden_size=HIDDEN_SIZE,
+        n_layer=N_LAYER, n_head=N_HEAD, dropout=DROPOUT,
+        n_dir_bins=N_DIR_BINS, mag_weight=MAG_WEIGHT, label_smooth=LABEL_SMOOTH,
+    ).to(DEVICE)
+    print(f"  parametrow: {sum(p.numel() for p in model.parameters()):,}")
 
-    scale = args.scale if args.scale is not None else max(abs(returns).max(), 1.0)
+    opt = torch.optim.AdamW(model.parameters(), lr=LEARNING_RATE,
+                            weight_decay=WEIGHT_DECAY)
+    sched = torch.optim.lr_scheduler.LambdaLR(
+        opt, lambda it: min((it + 1) / WARMUP_ITERS, 1.0))
 
-    print("=" * 50)
-    print(f"{len(trajectories)} epizodow, {traj_lens.sum()} krokow lacznie")
-    print(f"state_dim={state_dim}, act_dim={act_dim}, max_ep_len={max_ep_len}")
-    print(f"Srednia suma nagrod: {returns.mean():.2f}, std: {returns.std():.2f}, "
-          f"min: {returns.min():.2f}, max: {returns.max():.2f}")
-    print(f"Uzywana skala normalizacji return/reward: {scale:.2f}")
-    print("=" * 50)
+    rng = np.random.RandomState(SPLIT_SEED + 1000)
+    args = (BATCH_SIZE, CONTEXT_LENGTH, state_dim, act_dim,
+            state_mean, state_std, DEVICE)
 
-    num_trajectories = len(trajectories)
-    p_sample = traj_lens / traj_lens.sum()
-    K = args.K
+    best_val, best_state, since_best = float("inf"), None, 0
 
-    def get_batch(batch_size):
-        batch_inds = np.random.choice(
-            np.arange(num_trajectories), size=batch_size, replace=True, p=p_sample
-        )
-
-        s, a, rtg, timesteps, mask = [], [], [], [], []
-        for i in range(batch_size):
-            traj = trajectories[int(batch_inds[i])]
-            si = random.randint(0, len(traj["rewards"]) - 1)
-
-            s.append(traj["observations"][si:si + K].reshape(1, -1, state_dim))
-            a.append(traj["actions"][si:si + K].reshape(1, -1, act_dim))
-
-            timesteps.append(np.arange(si, si + s[-1].shape[1]).reshape(1, -1))
-            timesteps[-1][timesteps[-1] >= max_ep_len] = max_ep_len - 1
-
-            rtg.append(traj["returns_to_go"][si:si + K].reshape(1, -1, 1))
-
-            tlen = s[-1].shape[1]
-            s[-1] = np.concatenate([np.zeros((1, K - tlen, state_dim)), s[-1]], axis=1)
-            s[-1] = (s[-1] - state_mean) / state_std
-            a[-1] = np.concatenate([np.zeros((1, K - tlen, act_dim)), a[-1]], axis=1)
-            rtg[-1] = np.concatenate([np.zeros((1, K - tlen, 1)), rtg[-1]], axis=1) / scale
-            timesteps[-1] = np.concatenate([np.zeros((1, K - tlen)), timesteps[-1]], axis=1)
-            mask.append(np.concatenate([np.zeros((1, K - tlen)), np.ones((1, tlen))], axis=1))
-
-        s = torch.from_numpy(np.concatenate(s, axis=0)).to(dtype=torch.float32, device=device)
-        a = torch.from_numpy(np.concatenate(a, axis=0)).to(dtype=torch.float32, device=device)
-        rtg = torch.from_numpy(np.concatenate(rtg, axis=0)).to(dtype=torch.float32, device=device)
-        timesteps = torch.from_numpy(np.concatenate(timesteps, axis=0)).to(dtype=torch.long, device=device)
-        mask = torch.from_numpy(np.concatenate(mask, axis=0)).to(dtype=torch.float32, device=device)
-
-        return s, a, rtg, timesteps, mask
-
-    model = DecisionTransformer(
-        state_dim=state_dim,
-        act_dim=act_dim,
-        hidden_size=args.embed_dim,
-        n_layer=args.n_layer,
-        n_head=args.n_head,
-        max_ep_len=max_ep_len,
-        dropout=args.dropout,
-    ).to(device=device)
-
-    optimizer = torch.optim.AdamW(
-        model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay
-    )
-    scheduler = torch.optim.lr_scheduler.LambdaLR(
-        optimizer, lambda steps: min((steps + 1) / args.warmup_steps, 1)
-    )
-
-    for it in range(args.max_iters):
+    for it in range(1, NUM_TRAIN_ITERS + 1):
         model.train()
-        losses = []
-        for _ in range(args.num_steps_per_iter):
-            s, a, rtg, timesteps, mask = get_batch(args.batch_size)
-            action_target = a.clone()
+        s, a, m, v = get_batch(train_traj, *args, rng)
+        loss, ce, mg = model.compute_loss(s, m, a, m * v)
 
-            action_preds = model(s, a, rtg, timesteps, attention_mask=mask)
+        opt.zero_grad()
+        loss.backward()
+        nn.utils.clip_grad_norm_(model.parameters(), GRAD_NORM_CLIP)
+        opt.step()
+        sched.step()
 
-            loss = torch.mean(((action_preds - action_target) * mask.unsqueeze(-1)) ** 2)
+        if it % VAL_EVERY == 0 or it == 1:
+            model.eval()
+            vl, ang, med, hit, mge = [], [], [], [], []
+            with torch.no_grad():
+                for _ in range(VAL_BATCHES):
+                    s, a, m, v = get_batch(val_traj, *args, rng)
+                    lm = m * v
+                    l, _, _ = model.compute_loss(s, m, a, lm)
+                    vl.append(l.item())
+                    x = angular_metrics(model, s, m, a, lm, N_DIR_BINS)
+                    ang.append(x[0]); med.append(x[1]); hit.append(x[2]); mge.append(x[3])
+            vloss = float(np.mean(vl))
+            print(f"[{it:5d}/{NUM_TRAIN_ITERS}] train={loss.item():.4f} val={vloss:.4f} | "
+                  f"blad kierunku: sr={np.mean(ang):5.1f} deg med={np.mean(med):5.1f} deg "
+                  f"| <=15 deg: {100*np.mean(hit):4.0f}% | blad dlugosci={np.mean(mge)*action_scale:.2f} m")
 
-            optimizer.zero_grad()
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 0.25)
-            optimizer.step()
-            scheduler.step()
+            if vloss < best_val:
+                best_val, since_best = vloss, 0
+                best_state = {k: t.detach().cpu().clone()
+                              for k, t in model.state_dict().items()}
+            else:
+                since_best += 1
+                if since_best >= EARLY_STOP_PATIENCE:
+                    print(f"Early stop: brak poprawy przez {EARLY_STOP_PATIENCE} walidacji.")
+                    break
+        elif it % LOG_EVERY == 0:
+            print(f"[{it:5d}/{NUM_TRAIN_ITERS}] train={loss.item():.4f} "
+                  f"(ce={ce.item():.4f} mag={mg.item():.4f})")
 
-            losses.append(loss.item())
+    if best_state is not None:
+        model.load_state_dict(best_state)
 
-        print(f"Iteracja {it + 1}/{args.max_iters} - "
-              f"train_loss_mean: {np.mean(losses):.5f}, train_loss_std: {np.std(losses):.5f}")
+    report_by_turn_bucket(model, val_traj, args,
+                          np.random.RandomState(SPLIT_SEED + 7), action_scale)
 
-    torch.save(
-        {
-            "model_state_dict": model.state_dict(),
-            "state_mean": state_mean,
-            "state_std": state_std,
-            "scale": scale,
-            "state_dim": state_dim,
-            "act_dim": act_dim,
-            "K": K,
-            "max_ep_len": max_ep_len,
-            "embed_dim": args.embed_dim,
-            "n_layer": args.n_layer,
-            "n_head": args.n_head,
+    ckpt = {
+        "model_state_dict": model.state_dict(),
+        "state_mean": state_mean,
+        "state_std": state_std,
+        "held_out_groups": sorted(held),
+        "best_val_loss": best_val,
+        "config": {
+            "state_dim": state_dim, "act_dim": act_dim,
+            "context_length": CONTEXT_LENGTH, "hidden_size": HIDDEN_SIZE,
+            "n_layer": N_LAYER, "n_head": N_HEAD,
+            "n_dir_bins": N_DIR_BINS, "mag_weight": MAG_WEIGHT,
+            "label_smooth": LABEL_SMOOTH,
+            "action_scale": action_scale,
+            "use_yaw_sincos": USE_YAW_SINCOS, "yaw_index": yaw_index,
+            "state_columns": state_columns,
+            "dataset_file": DATASET_FILE,
         },
-        args.save_path,
-    )
-    print(f"\nZapisano model do: {args.save_path}")
+    }
+    torch.save(ckpt, CHECKPOINT_FILE)
+    print(f"\nZapisano checkpoint (najlepszy val={best_val:.4f}) do {CHECKPOINT_FILE}")
 
 
 if __name__ == "__main__":
