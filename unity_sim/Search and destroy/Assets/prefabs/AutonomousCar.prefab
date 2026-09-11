@@ -369,6 +369,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::Imu
   carRigidbody: {fileID: 1217116758590559756}
   accelNoiseStdDev: 0.005
+  accelSpeedNoiseMultiplier: 0.15
   gyroNoiseStdDev: 0.15
   gyroBias: {x: 0.79, y: 0.73, z: 1.46}
   accelBias: {x: 0, y: 0, z: 0.04}
@@ -722,6 +723,9 @@ GameObject:
   - component: {fileID: 5146340543588288506}
   - component: {fileID: -2845163636235054939}
   - component: {fileID: 7803501602790189171}
+  - component: {fileID: 3393260463508996764}
+  - component: {fileID: 1884905633191613168}
+  - component: {fileID: 227401069973098485}
   - component: {fileID: 3815576015037651868}
   - component: {fileID: 8360594413510804119}
   - component: {fileID: -6077569021290102734}
@@ -881,6 +885,55 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::LocalNavMeshSpawner
   buildingCenter: {fileID: 0}
   buildingRadius: 30
+--- !u!114 &3393260463508996764
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2358030015814267893}
+  m_Enabled: 0
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 8fcd2a51770610a41a3bc1b501426579, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Shooter
+  yolo: {fileID: 7049725506177845185}
+  carAgent: {fileID: 3815576015037651868}
+  engageWidthThreshold: 10
+  trackingSensitivity: 1
+  showDebugVision: 1
+  cameraRenderTexture: {fileID: 8400000, guid: f313075e0681b9c40a66e60bd3d24840, type: 2}
+--- !u!114 &1884905633191613168
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2358030015814267893}
+  m_Enabled: 0
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b596cec7a5b59dd44aa8cfe8da352997, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::TelemetryCsVLogger
+  chassis: {fileID: -2845163636235054939}
+  fileName: jazda swobodna.csv
+  logOnFixedUpdate: 0
+--- !u!114 &227401069973098485
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2358030015814267893}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 004fc7b479ebc894b84b5372a6d5a462, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::MockArTracker
+  positionJitterStdDev: 0.008
+  yawDriftDegPer100m: 2
+  scaleErrorFactor: 0.02
+  latencySeconds: 0.04
 --- !u!114 &3815576015037651868
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -899,12 +952,18 @@ MonoBehaviour:
   MaxStep: 0
   chassis: {fileID: -2845163636235054939}
   Target: {fileID: 0}
+  arTracker: {fileID: 227401069973098485}
+  useArTracking: 1
   spawner: {fileID: 7803501602790189171}
   maxStuckDuration: 2.5
   steeringSensitivity: 20
   speedSensitivity: 0.25
   turretSensitivity: 20
+  isEngagingTarget: 0
+  autoAimPitch: 0
+  autoAimYaw: 0
   hadCollisionThisStep: 0
+  engagementTimer: 0
   trainingMode: 0
   startingStepOffset: 0
 --- !u!114 &8360594413510804119
@@ -2162,6 +2221,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 1437444051263122375}
+  - component: {fileID: 6360665048044435103}
   m_Layer: 8
   m_Name: TurretPitchServo
   m_TagString: Untagged
@@ -2187,6 +2247,24 @@ Transform:
   - {fileID: 5927947417494283446}
   m_Father: {fileID: 3352296550305312360}
   m_LocalEulerAnglesHint: {x: -6, y: 0, z: 0}
+--- !u!114 &6360665048044435103
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8472829609565199482}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c72be42b19536464abf26c215a2e9b8e, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::CameraVibration
+  positionalAmplitude: 0.01
+  rotationalAmplitude: 1.5
+  frequency: 25
+  carRb: {fileID: 1217116758590559756}
+  carMotor: {fileID: 960083404246799892}
+  stationaryVibrationMultiplier: 0.2
 --- !u!1 &8547227188411028532
 GameObject:
   m_ObjectHideFlags: 0
