@@ -87,6 +87,7 @@ public class Chassis : MonoBehaviour
         
         m_Telemetry[10] = Mathf.Clamp(tofSensor.GetDistance() / maxTof, 0f, 1f);
 
+        // uncomment that below when logging unnormalized telemetry
         // m_Telemetry[0] = motor.GetCurrentSetSpeed();
         // m_Telemetry[1] = steering.GetCurrentSetSwing();
         // m_Telemetry[2] = cameraState.pitch;
@@ -101,8 +102,6 @@ public class Chassis : MonoBehaviour
         // m_Telemetry[9] = gyro.z;
         
         // m_Telemetry[10] = tofSensor.GetDistance();
-
-
 
         //yolo state
         if (yoloVision != null)
