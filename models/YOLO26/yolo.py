@@ -3,7 +3,7 @@ from ultralytics import YOLO
 
 model = YOLO("yolo_ours_v4.pt")
 
-img = cv2.imread('test_images/bbb.png')
+img = cv2.imread('test_images/aaa.png')
 #img = cv2.resize(img, (640, 640))
 results = model(img)
 

@@ -74,7 +74,7 @@ public class YoloVision : MonoBehaviour
 
         int numBoxes = 300;
         int features = 6;
-        float confThreshold = 0.5f;
+        float confThreshold = 0.3f;
 
         for (int i = 0; i < numBoxes; i++) 
         {
