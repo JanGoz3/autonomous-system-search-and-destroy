@@ -838,7 +838,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::ServosCamera
   yawTransform: {fileID: 3352296550305312360}
   pitchTransform: {fileID: 1437444051263122375}
-  servoSpeedDegPerSec: 545.5
+  servoSpeedDegPerSec: 90
   physicalLeftYawAngle: -87.5
   physicalCenterYawAngle: -3.5
   physicalRightYawAngle: 76.5
