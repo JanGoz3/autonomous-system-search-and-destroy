@@ -2788,6 +2788,7 @@ MonoBehaviour:
   pathFailRate: 0
   expertAngleDeg: 0
   labelRejectRate: 0
+  forcedSpawnDistance: -1
 --- !u!114 &663955671
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -2921,7 +2922,9 @@ MonoBehaviour:
   reverseProbability: 0.5
   noiseProbability: 0.65
   spawnYawJitter: 45
-  sessionTag: bc
+  uniformStartPoints: 1
+  startBins: 12
+  sessionTag: bc2
   minKeepSeconds: 20
   isRunning: 0
   episodeIndex: 0
@@ -2942,7 +2945,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 89d3e8f4a12e97e41acf5651ca1123fe, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::BCInference
-  modelAsset: {fileID: 5022602860645237092, guid: 90f6ea5632e625c439006acbfb8541e1, type: 3}
+  modelAsset: {fileID: 5022602860645237092, guid: 1dcb17970728c2341aa0a6340fafe5e4, type: 3}
   chassis: {fileID: 663955676}
   tofScanBuffer: {fileID: 663955684}
   carTransform: {fileID: 663955667}

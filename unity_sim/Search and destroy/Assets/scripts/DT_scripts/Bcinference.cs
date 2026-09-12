@@ -7,23 +7,6 @@ using UnityEngine.AI;
 using UnityEngine.InputSystem;
 using Unity.InferenceEngine;
 
-/// <summary>
-/// Inferencja WaypointTransformera (droga A - behavior cloning).
-///
-/// Zastepuje DTInference. Rozne wzgledem niego:
-///   * BRAK return-to-go i timestepow - model ich nie ma
-///   * padding IDENTYCZNY jak w treningu: zera + attention_mask = 0. Stara
-///     flaga useTrainingStylePadding istniala tylko dlatego, ze maska uwagi
-///     generowala NaN; po jej naprawie nie ma juz wyboru do zrobienia.
-///   * BRAK liczenia nagrody - nie jest do niczego potrzebna
-///   * BRAMKA STOZKA KIERUNKU - model zwraca pelny rozklad po kubelkach, wiec
-///     wybieramy najlepszy kubelek MIESZCZACY SIE w wykonalnym stozku. Auto z
-///     kierownica Ackermanna nie potrafi wykonac komendy "za siebie".
-///   * BRAMKA PEWNOSCI - przy niskiej pewnosci trzymamy poprzedni waypoint
-///     zamiast skakac w losowa strone.
-///
-/// Klawisze: I = start, O = stop.
-/// </summary>
 public class BCInference : MonoBehaviour
 {
     [Header("Model")]
@@ -46,7 +29,7 @@ public class BCInference : MonoBehaviour
     [Header("Wariant stanu (MUSI zgadzac sie z build_bc_dataset.py)")]
     [Tooltip("Jawny kanal kierunku jazdy jako PIERWSZA wartosc stanu. MUSI zgadzac sie "
            + "z ADD_DIRECTION_CHANNEL w build_bc_dataset.py.")]
-    public bool addDirectionChannel = true;
+    public bool addDirectionChannel = false;
     [Tooltip("+1 = trasa w kierunku podstawowym (pliki bc_fwd_*), -1 = odwrocona "
            + "(bc_rev_*). Bez tego kanalu model mial w tym samym miejscu dwa poprawne "
            + "rozwiazania i potrafil przeskoczyc na drugie w trakcie zakretu - w logu "
@@ -122,9 +105,9 @@ public class BCInference : MonoBehaviour
 
     public enum TraversabilityMode
     {
-        Wylaczony,   // brak filtru - zachowanie identyczne w symulacji i na sprzecie
-        NavMesh,     // NavMesh.Raycast - TYLKO SYMULACJA, na robocie nie ma siatki
-        ToF          // profil z TofScanBuffer - przenoszalne na sprzet
+        Wylaczony,
+        NavMesh,
+        ToF
     }
 
     [Header("Filtr przejezdnosci")]
@@ -206,7 +189,6 @@ public class BCInference : MonoBehaviour
     private float m_CooldownTimer;
     private float m_RecoverySteer;
 
-    // ------------------------------------------------------------------
 
     void Reset()
     {
@@ -308,7 +290,7 @@ public class BCInference : MonoBehaviour
                 chassis.SetSteering(m_RecoverySteer);
             }
             if (m_RecoveryTimer <= 0f) EndRecovery();
-            return;                     // model nie decyduje w trakcie manewru
+            return;
         }
 
         m_DecisionTimer += Time.deltaTime;
@@ -321,11 +303,6 @@ public class BCInference : MonoBehaviour
         }
     }
 
-    // ------------------------------------------------------------------
-
-    /// <summary>Surowy wektor stanu w kolejnosci build_bc_dataset.py:
-    /// [posX, posZ] jesli includePosition, yaw, telemetria po filtrach,
-    /// scan_dist, scan_age, scan_pitch / scanPitchScaleDeg.</summary>
     private float[] GetCurrentStateVector()
     {
         float[] telemetry = chassis.GetTelemetryState();
@@ -371,9 +348,6 @@ public class BCInference : MonoBehaviour
         return s;
     }
 
-    /// <summary>Czy kolumna telemetrii z bloku YOLO wchodzi do stanu. Musi dawac
-    /// DOKLADNIE te sama kolejnosc co get_state_columns() w build_bc_dataset.py,
-    /// inaczej model dostaje wartosci na zlych pozycjach.</summary>
     private bool KeepYoloColumn(int telemetryIndex)
     {
         int rel = telemetryIndex - yoloFirstIndex;
@@ -388,8 +362,6 @@ public class BCInference : MonoBehaviour
 
     private float BinCenterDeg(int i) => (i + 0.5f) * (360f / nDirBins) - 180f;
 
-    /// <summary>Wybor kierunku z rozkladu, ograniczony do wykonalnego stozka.
-    /// Zwraca kat w stopniach; coneMass to masa prawdopodobienstwa w stozku.</summary>
     private float PickDirection(float[] probs, out float coneMass, out bool argmaxOutside)
     {
         int rawBest = 0;
@@ -408,7 +380,6 @@ public class BCInference : MonoBehaviour
 
         if (!useSoftDirection) return BinCenterDeg(best);
 
-        // srednia kolowa po topK kubelkach w stozku - usuwa kwantyzacje kubelkow
         var idx = new List<int>(nDirBins);
         for (int i = 0; i < nDirBins; i++)
             if (Mathf.Abs(BinCenterDeg(i)) <= maxCommandAngleDeg) idx.Add(i);
@@ -435,8 +406,6 @@ public class BCInference : MonoBehaviour
         m_RecoveryTimer = reverseSeconds;
         m_StalledStreak = 0;
 
-        // skrecamy PRZECIWNIE do ostatniej komendy: auto cofa sie "odkrecajac"
-        // od przeszkody, w ktora wjechalo
         float sign = lastAngleDeg >= 0f ? -1f : 1f;
         m_RecoverySteer = sign * reverseSteer;
 
@@ -457,19 +426,9 @@ public class BCInference : MonoBehaviour
         if (carAgent != null) carAgent.externalControl = false;
 
         m_LastDecisionPos = carTransform != null ? carTransform.position : m_LastDecisionPos;
-        m_DecisionTimer = decisionInterval;      // od razu nowa decyzja modelu
+        m_DecisionTimer = decisionInterval;
     }
 
-    /// <summary>Jak daleko mozna jechac w danym kierunku wedlug profilu ToF.
-    ///
-    /// To jest przenoszalny odpowiednik NavMesh.Raycast: korzysta WYLACZNIE z
-    /// czujnika pokladowego, wiec na robocie zadziala identycznie. Cena jest taka,
-    /// ze widzi tylko tam, gdzie wiezyczka zdazyla zmierzyc - przy braku swiezego
-    /// pomiaru zwraca false i decyzja przechodzi bez sprawdzenia, dokladnie jak
-    /// zachowalby sie robot.
-    ///
-    /// Bierze MINIMUM z wachlarza sektorow wokol kierunku, bo auto ma szerokosc,
-    /// a pojedynczy sektor to waski promien.</summary>
     private bool TofReachMeters(float angleDeg, out float reachM)
     {
         reachM = 0f;
@@ -478,7 +437,7 @@ public class BCInference : MonoBehaviour
         float lo = tofScanBuffer.minYawDegrees;
         float hi = tofScanBuffer.maxYawDegrees;
         if (hi <= lo) return false;
-        if (angleDeg < lo || angleDeg > hi) return false;   // poza zakresem wiezyczki
+        if (angleDeg < lo || angleDeg > hi) return false;
 
         float[] dist = tofScanBuffer.GetNormalizedDistances();
         float[] age = tofScanBuffer.GetNormalizedAges();
@@ -492,7 +451,7 @@ public class BCInference : MonoBehaviour
         {
             float center = Mathf.Lerp(lo, hi, (sct + 0.5f) / n);
             if (Mathf.Abs(center - angleDeg) > tofConeHalfWidthDeg) continue;
-            if (age[sct] >= 0.999f) continue;                       // brak swiezego pomiaru
+            if (age[sct] >= 0.999f) continue;
             if (pitch != null && sct < pitch.Length
                 && Mathf.Abs(pitch[sct]) > tofMaxAbsPitchDeg) continue;
 
@@ -516,7 +475,6 @@ public class BCInference : MonoBehaviour
         var states = new Tensor<float>(new TensorShape(1, contextLength, stateDim));
         var mask = new Tensor<float>(new TensorShape(1, contextLength));
 
-        // Padding po LEWEJ, zera + maska 0 - dokladnie jak get_batch() w treningu.
         for (int i = 0; i < contextLength; i++)
         {
             bool isPad = i < pad;
@@ -574,7 +532,7 @@ public class BCInference : MonoBehaviour
             LogDecision(nowPos, angleDeg, magM, coneMass, moved, false, true);
             decisionCount++;
             if (flushEveryDecisions > 0 && decisionCount % flushEveryDecisions == 0) FlushLog();
-            return;                     // zostawiamy poprzedni waypoint
+            return;
         }
 
         if (straightDeadzoneDeg > 0f && Mathf.Abs(angleDeg) < straightDeadzoneDeg)
@@ -582,9 +540,6 @@ public class BCInference : MonoBehaviour
 
         if (debugForceForward) { angleDeg = 0f; magM = 1.5f; }
 
-        // --- limit zasiegu w wybranym kierunku ---
-        // Liczony PRZED zbudowaniem punktu, zeby oba tryby dzialaly tak samo:
-        // ograniczamy dlugosc komendy, nie przesuwamy gotowego punktu.
         float reachLimit = float.MaxValue;
         Vector3 carPos = carTransform.position;
         Quaternion carYaw = Quaternion.Euler(0f, carTransform.eulerAngles.y, 0f);
@@ -598,7 +553,6 @@ public class BCInference : MonoBehaviour
             float r0 = angleDeg * Mathf.Deg2Rad;
             Vector3 probe = from + carYaw * new Vector3(magM * Mathf.Sin(r0), 0f,
                                                         magM * Mathf.Cos(r0));
-            // NavMesh.Raycast zwraca true, gdy trafi w KRAWEDZ siatki
             if (NavMesh.Raycast(from, probe, out NavMeshHit block, NavMesh.AllAreas))
                 reachLimit = Vector3.Distance(from, block.position) - traversabilityMargin;
         }
@@ -615,7 +569,6 @@ public class BCInference : MonoBehaviour
             waypointsShortened++;
             if (reachLimit < minWaypointDistance)
             {
-                // nie ma gdzie jechac w tym kierunku - nie ruszamy waypointa
                 decisionsHeld++;
                 LogDecision(nowPos, angleDeg, magM, coneMass, moved, false, true);
                 decisionCount++;
@@ -650,7 +603,6 @@ public class BCInference : MonoBehaviour
         if (flushEveryDecisions > 0 && decisionCount % flushEveryDecisions == 0) FlushLog();
     }
 
-    // ------------------------------------------------------------------
 
     private void OpenLog()
     {
@@ -708,7 +660,7 @@ public class BCInference : MonoBehaviour
 
         if (isRecovering)
         {
-            Gizmos.color = Color.magenta;      // magenta = manewr wychodzenia
+            Gizmos.color = Color.magenta;
             Gizmos.DrawRay(carTransform.position, -carTransform.forward * 1.5f);
             Gizmos.DrawWireSphere(carTransform.position, 0.5f);
             return;
@@ -718,7 +670,6 @@ public class BCInference : MonoBehaviour
         Gizmos.DrawLine(carTransform.position, target.position);
         Gizmos.DrawWireSphere(target.position, 0.25f);
 
-        // granice wykonalnego stozka
         Gizmos.color = new Color(1f, 1f, 0f, 0.4f);
         var yaw = Quaternion.Euler(0f, carTransform.eulerAngles.y, 0f);
         foreach (float sgn in new[] { -1f, 1f })

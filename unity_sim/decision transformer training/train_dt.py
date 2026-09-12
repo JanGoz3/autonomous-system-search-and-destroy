@@ -1,16 +1,3 @@
-"""
-Trening WaypointTransformera (behavior cloning, droga A).
-
-Rozne wzgledem train_dt.py:
-  * brak return_scale i returns_to_go
-  * brak ZERO_ACTIONS_IN_CONTEXT - akcje nie wchodza do kontekstu w ogole
-  * OKNO LOSOWANE PO KONCU, nie po poczatku. train_dt.py losowal si i bral
-    states[si:si+K], wiec skrocone okna wypadaly na KONCU epizodu. W inferencji
-    skrocone okno wystepuje na POCZATKU przebiegu. Tutaj losujemy indeks
-    "teraz" i cofamy sie o K-1 krokow, co odtwarza sytuacje z inferencji.
-  * metryki w stopniach, nie tylko wartosc lossu
-"""
-
 import pickle
 
 import numpy as np
@@ -19,28 +6,18 @@ import torch.nn as nn
 
 from models.DecisionTransformer.decision_transformer import WaypointTransformer
 
-DATASET_FILE = "bc_dataset_pos0_scan1p_yolo2_dir.pkl"
-CHECKPOINT_FILE = "bc_ckpt_dir.pt"
+DATASET_FILE = "bc_dataset_pos0_scan1p_yolo2.pkl"
+CHECKPOINT_FILE = "bc_ckpt_v2.pt"
 
 CONTEXT_LENGTH = 20
 
-# 610 tys. parametrow na ~2200 niezaleznych decyzji (31 epizodow x ~70) dawalo
-# najlepsza walidacje po 200 iteracjach z 8000 - model zapamietywal zbior szybciej
-# niz robil jedno przejscie. KEEP_ALL_PHASES tworzy 10 kopii kazdego epizodu
-# przesunietych o 0.1 s, ktore sa niemal duplikatami, wiec nominalne 310 sekwencji
-# nie jest 310 niezaleznymi probkami.
 HIDDEN_SIZE = 64
 N_LAYER = 2
 N_HEAD = 4
 DROPOUT = 0.2
 
-# Przyciecie znormalizowanego stanu. Na zebranych danych telem_8 (zyroskop Y) mial
-# max |z| = 70.5 - jedno zdarzenie o ogromnej predkosci katowej po kolizji
-# dominowalo normalizacje calej kolumny. MUSI byc identyczne w export_bc_to_onnx.py.
 STATE_CLIP = 5.0
 
-# Zakrety 45-70 deg to 7.5% probek i najgorszy wynik (32.6 deg bledu, 14% trafien).
-# Ten udzial okien zakotwiczonych na kroku z |kat celu| >= TURN_MIN_DEG.
 TURN_OVERSAMPLE = 0.35
 TURN_MIN_DEG = 25.0
 
@@ -58,7 +35,7 @@ NUM_TRAIN_ITERS = 10000
 LOG_EVERY = 200
 VAL_EVERY = 200
 VAL_BATCHES = 16
-EARLY_STOP_PATIENCE = 15       # w jednostkach VAL_EVERY
+EARLY_STOP_PATIENCE = 15
 
 NUM_HELDOUT_GROUPS = 4
 SPLIT_SEED = 42
@@ -76,8 +53,6 @@ def load_dataset(path):
 
 
 def apply_yaw_sincos(trajectories, yaw_index):
-    """yaw w stopniach -> (sin, cos). Musi byc odtworzone identycznie w grafie
-    ONNX, bo Unity podaje surowy yaw."""
     for t in trajectories:
         s = t["states"]
         yaw = np.radians(s[:, yaw_index].astype(np.float64))
@@ -90,7 +65,6 @@ def apply_yaw_sincos(trajectories, yaw_index):
 
 
 def mark_turn_indices(trajectories, min_deg=TURN_MIN_DEG):
-    """Dla kazdej trajektorii lista indeksow, w ktorych etykieta jest zakretem."""
     for t in trajectories:
         a = np.degrees(np.arctan2(t["actions"][:, 0], t["actions"][:, 1]))
         t["turn_idx"] = np.flatnonzero((np.abs(a) >= min_deg) & t["valid"])
@@ -111,12 +85,11 @@ def get_batch(trajectories, batch_size, K, state_dim, act_dim,
         traj = trajectories[idx]
         n = traj["states"].shape[0]
 
-        # z prawdopodobienstwem TURN_OVERSAMPLE zakotwicz okno na zakrecie
         ti = traj.get("turn_idx")
         if ti is not None and len(ti) and rng.rand() < TURN_OVERSAMPLE:
             te = int(ti[rng.randint(0, len(ti))])
         else:
-            te = rng.randint(0, n)             # indeks "teraz"
+            te = rng.randint(0, n)
         ts = max(0, te - K + 1)
 
         s = (traj["states"][ts:te + 1] - state_mean) / state_std
@@ -139,7 +112,6 @@ def get_batch(trajectories, batch_size, K, state_dim, act_dim,
 
 @torch.no_grad()
 def angular_metrics(model, s, m, a, lm, n_bins):
-    """Sredni i medianowy blad kierunku w stopniach + trafienia w kubelek."""
     logits, mag = model.heads(s, m)
     centers = model.bin_centers
     pred_ang = centers[logits.argmax(dim=-1)]
@@ -159,12 +131,6 @@ def angular_metrics(model, s, m, a, lm, n_bins):
 
 @torch.no_grad()
 def report_by_turn_bucket(model, trajectories, args, rng, action_scale, n_batches=40):
-    """Rozbicie bledu po WIELKOSCI zakretu.
-
-    Zagregowana celnosc jest zdominowana przez prosta - linia bazowa 'zawsze
-    prosto' trafia w wiekszosc probek. O przejechaniu okrazenia decyduja
-    wylacznie zakrety, wiec to jest metryka, na ktora trzeba patrzec.
-    """
     model.eval()
     tgt_all, err_all = [], []
     for _ in range(n_batches):
@@ -210,11 +176,6 @@ def main():
     rng_split = np.random.RandomState(SPLIT_SEED)
     n_val = min(NUM_HELDOUT_GROUPS, max(1, len(groups) // 5))
 
-    # Podzial STRATYFIKOWANY po rodzaju epizodu. Losowanie bez tego wybieralo same
-    # grupy 'clean', przez co walidacja mierzyla wylacznie jazde po idealnej linii,
-    # a nie odzyskiwanie po zjechaniu z niej - i dlatego strata walidacyjna
-    # wychodzila NIZSZA od treningowej. EpisodeDirector koduje warunek w nazwie
-    # (bc_fwd_noisy_r003), wiec da sie to rozdzielic po prostym dopasowaniu.
     noisy = [g for g in groups if "noisy" in g]
     clean = [g for g in groups if "noisy" not in g]
 

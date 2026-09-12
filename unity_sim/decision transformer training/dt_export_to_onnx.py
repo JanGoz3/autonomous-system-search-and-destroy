@@ -5,8 +5,8 @@ import torch.nn.functional as F
 
 from models.DecisionTransformer.decision_transformer import WaypointTransformer
 
-CHECKPOINT_FILE = "bc_ckpt_dir.pt"
-ONNX_OUTPUT_FILE = "../Search and destroy/Assets/neural_nets/WaypointTransformer_yolov2.onnx"
+CHECKPOINT_FILE = "bc_ckpt_v2.pt"
+ONNX_OUTPUT_FILE = "../Search and destroy/Assets/neural_nets/WaypointTransformer_yolov3.onnx"
 TOLERANCE = 1e-3
 
 
@@ -31,8 +31,6 @@ class ExportWrapper(nn.Module):
     def forward(self, states, attention_mask):
         x = self._expand_yaw(states) if self.use_yaw_sincos else states
         x = (x - self.state_mean) / self.state_std
-        # to samo przyciecie co w treningu - inaczej pojedynczy skok zyroskopu
-        # w inferencji wpuscilby do modelu wartosc, jakiej nigdy nie widzial
         x = torch.clamp(x, -self.state_clip, self.state_clip)
 
         logits, mag = self.model.heads(x, attention_mask)
@@ -85,7 +83,7 @@ def main():
 
     def check(name, n_pad):
         s = torch.randn(1, K, sd_raw)
-        s[..., cfg["yaw_index"]] = torch.rand(1, K) * 360.0     # yaw w STOPNIACH
+        s[..., cfg["yaw_index"]] = torch.rand(1, K) * 360.0
         m = torch.ones(1, K)
         if n_pad:
             m[0, :n_pad] = 0

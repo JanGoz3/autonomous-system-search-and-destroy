@@ -117,12 +117,6 @@ public class AutoExplorer : MonoBehaviour
     public Vector3 ExpertWorldWaypoint => expertWorldWaypointRaw;
     public bool StuckThisFrame { get; private set; }
 
-    /// <summary>Czy etykieta z tej klatki nadaje sie do lossu. Czytane przez
-    /// DTDataLogger i zapisywane do kolumny expert_valid.
-    ///
-    /// Wczesniej logger ustawial expertOk = true bezwarunkowo, gdy isExploring,
-    /// wiec kolumna expert_valid byla stale rowna 1 i filtr etykiet fallbackowych
-    /// (brak pelnej sciezki NavMesh) nie dzialal nigdy.</summary>
     public bool ExpertLabelUsable =>
         expertPathValid
         && expertLocalWaypoint.magnitude > 0.05f
@@ -206,9 +200,14 @@ public class AutoExplorer : MonoBehaviour
         }
     }
 
+    [HideInInspector] public float forcedSpawnDistance = -1f;
+
     public void RespawnOnRoute()
     {
-        float d = Random.Range(0f, routeLength);
+        float d = forcedSpawnDistance >= 0f
+                ? Mathf.Repeat(forcedSpawnDistance, Mathf.Max(0.01f, routeLength))
+                : Random.Range(0f, routeLength);
+        forcedSpawnDistance = -1f;          // zuzywa sie jednorazowo
         Vector3 pos = route.PointAtDistance(d);
 
         Vector3 ahead = route.PointAtDistance(d + 1f);
@@ -287,10 +286,6 @@ public class AutoExplorer : MonoBehaviour
              > Mathf.FloorToInt(progressAlongRoute / routeLength))
             lapsCompleted++;
 
-        // Monotoniczny postep byl przyczyna 15% niewykonalnych etykiet: po scietym
-        // zakrecie pursuit point zostawal ZA autem, a auto z kierownica Ackermanna
-        // nie potrafi obrocic sie w miejscu - na zebranych danych dawalo to serie
-        // po ~75 krokow (7.5 s) z etykieta "jedz do tylu".
         if (deviationFromRoute <= progressRegressionMaxDeviation)
             progressAlongRoute = bestD;                        // wolno sie cofnac
         else
@@ -410,8 +405,6 @@ public class AutoExplorer : MonoBehaviour
 
             if (respawnWhenStuck)
             {
-                // KOLEJNOSC JEST ISTOTNA: najpierw zamykamy epizod, dopiero potem
-                // przenosimy auto - inaczej teleportacja trafilaby do buforu.
                 if (dataLogger != null && dataLogger.isRecording)
                     dataLogger.RestartEpisode($"zaklinowanie na {progressAlongRoute:F1} m trasy");
                 RespawnOnRoute();

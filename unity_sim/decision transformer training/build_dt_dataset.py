@@ -1,21 +1,3 @@
-"""
-Budowa datasetu behavior cloning z plikow CSV z DTDataLogger.
-
-Rozne wzgledem build_dt_dataset.py:
-  * BRAK compute_rewards / compute_return_to_go - nagroda nie jest uzywana
-  * EXCLUDE_YOLO - wycina telem_11..37. Pomiar na trzech epizodach: 6 z tych
-    kolumn bylo dokladnie stalych zerowych (flagi PERSON/TARGET nigdy nie
-    zapalily sie), a telem_29..35 byly niezerowe w 0.4% probek, co po
-    normalizacji dawalo |z| do 55 przy maksimum 9.5 w reszcie stanu.
-  * FILTR KATA - odrzuca etykiety wskazujace ZA auto. Na surowych danych bylo
-    ich 12-15%, w dwoch spojnych seriach po ~75 krokow. Auto z kierownica
-    Ackermanna nie moze ich wykonac.
-  * FILTRY POSTEPU I ODCHYLENIA - odrzucaja klatki, w ktorych rzut auta na
-    trase przeskoczyl (ProjectGlobally trafil w rownolegly korytarz) albo auto
-    bylo daleko od trasy. Wymagaja kolumn progress_along_route i
-    deviation_from_route; bez nich sa pomijane z ostrzezeniem.
-"""
-
 import pickle
 import re
 import warnings
@@ -26,69 +8,32 @@ import pandas as pd
 
 DATA_DIR = r"C:\Users\Admin\AppData\LocalLow\DefaultCompany\Search and destroy\DTDatasetBC"
 
-# --- wariant stanu ---
 INCLUDE_POSITION = False
 INCLUDE_SCAN = True
 INCLUDE_SCAN_PITCH = True
 EXCLUDE_POLICY_OUTPUTS = True          # telem_0..3 = wyjscia polityki PPO
 POLICY_OUTPUT_COLUMNS = ("telem_0", "telem_1", "telem_2", "telem_3")
-# Blok YOLO: telem_11..37, 3 sloty po 9 cech (x, y, w, h, conf + 4 flagi klas).
-# Pomiar na zebranych danych: slot 0 ma detekcje w 47.9% krokow (drzwi w 46.1%),
-# slot 1 w 6.3%, slot 2 w 0.3%. Slot 2 dawal |z| = 44.7 po normalizacji przy 9.5
-# w reszcie stanu - rzadkie zdarzenia o ogromnej wartosci znormalizowanej.
-# Drzwi stoja w stalych miejscach, wiec dzialaja jak landmarki do lokalizacji -
-# i w przeciwienstwie do absolutnego yaw sa obserwowalne na robocie.
+
 YOLO_FIRST_INDEX = 11
 YOLO_FEATURES_PER_SLOT = 9
-YOLO_MAX_SLOTS = 2                     # 0 = calkowicie bez YOLO (dawne EXCLUDE_YOLO=True)
-
-# Ktore cechy w slocie pominac. Uklad slotu (YoloVision.RunInference):
-#   +0 x  +1 y  +2 w  +3 h  +4 conf  +5 chair  +6 door  +7 person  +8 target
-# Flagi PERSON i TARGET sa w zadaniu okrazenia zawsze zerowe: telem_19, 27, 28 to
-# kolumny dokladnie stale, a telem_18 odpala sie w ulamku promila probek i daje
-# |z| = 59 po normalizacji przy 9.5 w reszcie stanu. Zostaja x, y, w, h, conf,
-# chair, door - czyli 7 cech na slot zamiast 9.
+YOLO_MAX_SLOTS = 2
 YOLO_DROP_OFFSETS = (7, 8)
 SCAN_PITCH_SCALE_DEG = 45.0
 
-# Jawny kanal kierunku jazdy: +1 dla trasy podstawowej, -1 dla odwroconej.
-# EpisodeDirector koduje kierunek w nazwie pliku (bc_rev_noisy_r003_...), wiec
-# da sie go dodac do stanu BEZ zbierania nowych danych.
-#
-# Po co: przy Reverse Probability = 0.5 model mial w tym samym miejscu dwa poprawne
-# rozwiazania, rozrozniane tylko przez yaw. W trakcie zakretu kurs przechodzi przez
-# wartosci pasujace do OBU trybow i model potrafil przeskoczyc na drugi - w logu
-# decyzji widac trzy zawrotki po ~150 st, wszystkie w prawym korytarzu, z coneMass
-# nie nizszym niz 0.956. To nie byla niepewnosc, tylko spojny plan "jedz z powrotem".
-#
-# Kolumna idzie na POCZATEK wektora stanu; w Unity odpowiada jej pole
-# BCInference.drivingDirection.
 ADD_DIRECTION_CHANNEL = False
 REVERSE_MARKER = "_rev_"
 
-# --- filtry jakosci etykiety ---
-MAX_LABEL_ANGLE_DEG = 70.0     # |atan2(x, z)| powyzej tego = cel za autem
-MAX_PROGRESS_JUMP_M = 1.0      # skok rzutu na trase na krok logu (0.1 s)
-MAX_DEVIATION_M = 2.5          # odleglosc auta od trasy
+MAX_LABEL_ANGLE_DEG = 70.0
+MAX_PROGRESS_JUMP_M = 1.0
+MAX_DEVIATION_M = 2.5
 
 STILL_WINDOW = 5
 STILL_DIST_M = 0.02
 KEEP_EVERY_STILL = 10
-MIN_VALID_FRACTION = 0.30      # podniesione z 0.10 - po naprawie eksperta
-                               # epizod z mniej niz 30% waznych probek jest zly
+MIN_VALID_FRACTION = 0.30
 
-DECIMATE = 5                   # 10 Hz w logu -> 2 Hz decyzji (0.5 s)
+DECIMATE = 5
 
-# Filtr plikow po nazwie - do ablacji kierunku jazdy.
-# EpisodeDirector koduje warunek w prefiksie: bc_fwd_clean_r003_episode_0004.csv
-#   None        -> wszystkie pliki
-#   "_fwd_"     -> tylko jazda w kierunku podstawowym
-#   "_rev_"     -> tylko odwrotna
-#   "_noisy_"   -> tylko z szumem (DAgger)
-# UWAGA przy porownywaniu: "_fwd_" daje ~polowe danych, wiec jesli mimo to wynik
-# na zakretach jest LEPSZY, to znaczy ze mieszanie kierunkow faktycznie szkodzi -
-# 4 narozniki x 31 epizodow to ~120 zdarzen narozníkowych na caly zbior, a podzial
-# na dwa kierunki zostawia po 60 na kazdy.
 FILE_FILTER = None
 KEEP_ALL_PHASES = True
 MIN_DECIMATED_LENGTH = 25
@@ -102,10 +47,6 @@ OUTPUT_FILE = (f"bc_dataset{'_' + FILE_FILTER.strip('_') if FILE_FILTER else ''}
                f"{'_noyolo' if YOLO_MAX_SLOTS == 0 else f'_yolo{YOLO_MAX_SLOTS}'}"
                f"{'_dir' if ADD_DIRECTION_CHANNEL else ''}.pkl")
 
-
-# ----------------------------------------------------------------------
-# kolumny stanu
-# ----------------------------------------------------------------------
 
 def indexed_columns(df, prefix):
     cols = sorted((c for c in df.columns if re.fullmatch(rf"{prefix}[0-9]+", c)),
@@ -166,19 +107,12 @@ def build_state_vector(df, cols, pitch_cols):
     return states
 
 
-# ----------------------------------------------------------------------
-# maski waznosci
-# ----------------------------------------------------------------------
-
 def moving_mask(pos, window=STILL_WINDOW, thr=STILL_DIST_M):
     fut = np.minimum(np.arange(len(pos)) + window, len(pos) - 1)
     return np.hypot(*(pos[fut] - pos).T) >= thr
 
 
 def thin_still_runs(moving, keep_every=KEEP_EVERY_STILL):
-    """Zostawia co keep_every probke z dlugich serii bezruchu. Calkowite
-    wyrzucenie bezruchu odbiera modelowi jedyne przyklady 'stoje i musze
-    zawrocic'; zostawienie wszystkich zalewa loss powtorzeniami."""
     valid = moving.copy()
     n, i = len(moving), 0
     while i < n:
@@ -194,7 +128,6 @@ def thin_still_runs(moving, keep_every=KEEP_EVERY_STILL):
 
 
 def label_masks(df, actions_m):
-    """Zwraca (valid, statystyki odrzucen)."""
     n = len(df)
     stats = {}
 
@@ -235,8 +168,6 @@ def label_masks(df, actions_m):
     return valid, stats
 
 
-# ----------------------------------------------------------------------
-
 def process_episode(path: Path):
     df = pd.read_csv(path)
     if ADD_DIRECTION_CHANNEL:
@@ -267,10 +198,6 @@ def process_episode(path: Path):
         "valid": valid,
         "episode_length": len(df),
         "source_file": path.name,
-        # Grupa = SESJA, nie plik. EpisodeDirector nadaje instancePrefix kodujacy
-        # warunek (bc_fwd_clean_r003), wiec wszystkie chunki jednej sesji maja
-        # wspolna grupe. Bez tego podzial train/val w train_bc.py przecinal jeden
-        # ciagly przejazd i strata walidacyjna mierzyla interpolacje, nie generalizacje.
         "group": path.name.split("_episode_")[0] if "_episode_" in path.name else path.name,
         "reject_stats": stats,
     }
@@ -287,9 +214,6 @@ def decimate(traj, factor, phase):
 
 
 def expand_phases(trajectories):
-    """Decymacja 10x z zachowaniem wszystkich 10 faz - kazdy epizod daje 10
-    sekwencji przesunietych o jeden krok logu. 'group' zostaje wspolna, zeby
-    podzial train/val nie przeciekal."""
     if DECIMATE <= 1:
         return trajectories
     phases = range(DECIMATE) if KEEP_ALL_PHASES else [0]
@@ -309,9 +233,6 @@ def report_scan_health(trajectories, cols):
         return
     S = np.concatenate([t["states"] for t in trajectories])
     ages = S[:, age_idx]
-    # Swiezosc liczona z WIEKU, nie z odleglosci. Po poprawce TofScanBuffer
-    # przeterminowany sektor ma dist = 1.0 (daleko), wiec warunek dist > 0 byl
-    # zawsze prawdziwy i metryka pokazywala 16/16 niezaleznie od stanu bufora.
     fresh = (ages < 0.999).sum(axis=1)
     print(f"\nProfil ToF ({len(dist_idx)} sektorow):")
     print(f"  sektorow z POMIAREM na krok: srednia={fresh.mean():.1f} mediana={np.median(fresh):.0f} "
