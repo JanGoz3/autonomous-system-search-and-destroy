@@ -60,15 +60,15 @@ public class ServosCamera : MonoBehaviour
         ApplyRotations();
     }
 
-    void Update()
+    void FixedUpdate()
     {
         if (enableManualTesting)
         {
             SetPitchYaw(testSwingPitch, testSwingYaw); 
         }
 
-        m_currentYawAngle = Mathf.MoveTowards(m_currentYawAngle, m_targetYawAngle, servoSpeedDegPerSec * Time.deltaTime);
-        m_currentPitchAngle = Mathf.MoveTowards(m_currentPitchAngle, m_targetPitchAngle, servoSpeedDegPerSec * Time.deltaTime);
+        m_currentYawAngle = Mathf.MoveTowards(m_currentYawAngle, m_targetYawAngle, servoSpeedDegPerSec * Time.fixedDeltaTime);
+        m_currentPitchAngle = Mathf.MoveTowards(m_currentPitchAngle, m_targetPitchAngle, servoSpeedDegPerSec * Time.fixedDeltaTime);
 
         ApplyRotations();
     }
