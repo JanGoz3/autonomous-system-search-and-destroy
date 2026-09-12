@@ -12,12 +12,25 @@ public class ARUDPStreamer : MonoBehaviour
     private Quaternion rotationOffset = Quaternion.identity;
     private string statusMsg = "Waiting...";
 
+    private bool isScreenBlack = true;
+    private Texture2D blackTex;
+    private Texture2D transparentTex;
+
+    private Vector3 currentPos;
+
     void Start()
     {
         Screen.sleepTimeout = SleepTimeout.NeverSleep;
-
         udpClient = new UdpClient();
         Application.targetFrameRate = 30;
+
+        blackTex = new Texture2D(1, 1);
+        blackTex.SetPixel(0, 0, Color.black);
+        blackTex.Apply();
+
+        transparentTex = new Texture2D(1, 1);
+        transparentTex.SetPixel(0, 0, new Color(0, 0, 0, 0));
+        transparentTex.Apply();
     }
 
     void Update()
@@ -27,6 +40,8 @@ public class ARUDPStreamer : MonoBehaviour
 
         Vector3 calibratedPos = Quaternion.Inverse(rotationOffset) * (rawPos - positionOffset);
         Quaternion calibratedRot = Quaternion.Inverse(rotationOffset) * rawRot;
+
+        currentPos = calibratedPos;
 
         string message = string.Format(System.Globalization.CultureInfo.InvariantCulture,
             "{0:F4},{1:F4},{2:F4},{3:F4},{4:F4},{5:F4},{6:F4}",
@@ -53,15 +68,42 @@ public class ARUDPStreamer : MonoBehaviour
         int btnHeight = h / 8;
         int padding = 40;
 
+        GUI.DrawTexture(new Rect(0, 0, w, h), isScreenBlack ? blackTex : transparentTex);
+
         GUI.skin.label.fontSize = h / 40;
         GUI.skin.textField.fontSize = h / 40;
         GUI.skin.button.fontSize = h / 30;
+        GUI.skin.box.fontSize = h / 35; 
+        GUI.contentColor = Color.white;
 
-        GUI.Label(new Rect(padding, padding, w, btnHeight), "Jetson IP Address:");
-        ipAddress = GUI.TextField(new Rect(padding, padding + (h / 20), w - 2 * padding, btnHeight), ipAddress);
-        GUI.Label(new Rect(padding, padding + 2 * btnHeight, w, btnHeight), statusMsg);
+        Rect coordsRect = new Rect(padding, padding, w - 2 * padding, btnHeight);
+        
+        int topOffset = padding + btnHeight + 20;
+        Rect ipLabelRect = new Rect(padding, topOffset, w, btnHeight);
+        Rect ipFieldRect = new Rect(padding, topOffset + (h / 25), w - 2 * padding, btnHeight);
+        Rect statusRect = new Rect(padding, topOffset + btnHeight + (h / 25), w, btnHeight);
+        
+        Rect calibrateBtnRect = new Rect(padding, (h / 2) - (btnHeight / 2), w - 2 * padding, btnHeight * 2);
 
-        if (GUI.Button(new Rect(padding, (h / 2) - (btnHeight / 2), w - 2 * padding, btnHeight * 2), "SET ZERO\n(CALIBRATE)"))
+        Event e = Event.current;
+        if (e.type == EventType.MouseDown)
+        {
+            Vector2 clickPos = e.mousePosition;
+
+            if (!ipFieldRect.Contains(clickPos) && !calibrateBtnRect.Contains(clickPos))
+            {
+                isScreenBlack = !isScreenBlack;
+            }
+        }
+
+        string coordsMsg = string.Format("X: {0:F2}  |  Y: {1:F2}  |  Z: {2:F2}", currentPos.x, currentPos.y, currentPos.z);
+        GUI.Box(coordsRect, "\n" + coordsMsg);
+
+        GUI.Label(ipLabelRect, "Jetson IP Address:");
+        ipAddress = GUI.TextField(ipFieldRect, ipAddress);
+        GUI.Label(statusRect, statusMsg);
+
+        if (GUI.Button(calibrateBtnRect, "SET ZERO\n(CALIBRATE)"))
         {
             CalibrateZeroPoint();
         }
