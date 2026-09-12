@@ -180,4 +180,26 @@ public:
     {
         return std::pair{m_currentSetSwingPitch, m_currentSetSwingYaw};
     }
+
+    std::pair<float, float> GetActualNormalizedSwing()
+    {
+        if (!m_isInitialized) return std::pair<float, float>{0.0f, 0.0f};
+
+        float physicalSwingPitch = (m_currentPitchDeg - 90.0f) * (2.0f / 180.0f) * -1.0f;
+        float normPitch = 0.0f;
+        
+        if (physicalSwingPitch > 0.0f) {
+            normPitch = physicalSwingPitch / 0.422f;
+        } else if (physicalSwingPitch < 0.0f) {
+            normPitch = physicalSwingPitch / 0.318f;
+        }
+
+        float physicalSwingYaw = (m_currentYawDeg - 90.0f) * (2.0f / 180.0f) * -1.0f;
+        float normYaw = physicalSwingYaw;
+
+        normPitch = constrain(normPitch, -1.0f, 1.0f);
+        normYaw = constrain(normYaw, -1.0f, 1.0f);
+
+        return std::pair<float, float>{normPitch, normYaw};
+    }
 };
