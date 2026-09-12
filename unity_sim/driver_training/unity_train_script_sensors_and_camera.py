@@ -237,7 +237,7 @@ try:
                 best_mean_reward = mean_rew
                 
                 formatted_reward = f"{mean_rew:.2f}".replace('.', '_')
-                dynamic_best_file = f"unity_sim/driver_training/{CHECKPOINT_FILE.removesuffix('.pth')}_{formatted_reward}.pth"
+                dynamic_best_file = f"unity_sim/driver_training/{CHECKPOINT_FILE[:-4]}_{formatted_reward}.pth"
                 
                 torch.save(save_data, dynamic_best_file)
                 print(f"*** NEW ALL-TIME BEST MODEL. Saved to {dynamic_best_file} (Reward: {mean_rew:.2f}) ***")

@@ -44,7 +44,7 @@ public class Shooter : MonoBehaviour
         {
             if (!carAgent.isEngagingTarget)
             {
-                (carAgent.autoAimPitch, carAgent.autoAimYaw) = carAgent.chassis.servosCamera.GetCurrentPitchYaw();
+                (carAgent.autoAimPitch, carAgent.autoAimYaw) = carAgent.chassis.servosCamera.GetActualNormalizedSwing();
             }
 
             carAgent.isEngagingTarget = true;
