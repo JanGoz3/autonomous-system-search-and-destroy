@@ -1,13 +1,24 @@
 #Unity
 
-Library/
-Temp/
-Obj/
-Build/
-Builds/
-Logs/
-MemoryCaptures/
-UserSettings/
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Bb]uilds/
+[Ll]ogs/
+[Uu]ser[Ss]ettings/
+[Mm]emoryCaptures/
+
+# Android 
+.utmp/
+.gradle/
+*.apk
+*.aab
+*.keystore
+*.jks
+compile_commands.json
+
+*_BurstDebugInformation_DoNotShip/
 
 # --- Unity Temporary & Generated Files ---
 [Ll]ibrary/
