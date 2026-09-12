@@ -37,7 +37,7 @@ namespace chassis_defines
     const int STEERING_IN_PIN = 22; // PIN from radio controller - read user input
     const float STEERING_SWING_DEFAULT_CONSTRAINT_LEFT = -1.0f; // constrain left turn
     const float STEERING_SWING_DEFAULT_CONSTRAINT_RIGHT = 1.0f; // constrain right turn
-    const int STEERING_SERVO_TRIM_IN_MILISECONDS = 85; // set TRIM (miliseconds) - wheels are not straight in platforms
+    const int STEERING_SERVO_TRIM_IN_MILISECONDS = 40; // set TRIM (miliseconds) - wheels are not straight in platforms
 
 
     // Camera servos configuration

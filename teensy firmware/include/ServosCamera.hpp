@@ -16,6 +16,15 @@ private:
     bool m_isInitialized = false;
     float m_currentSetSwingPitch = 0.0f;
     float m_currentSetSwingYaw = 0.0f;
+    float m_currentPitchDeg = 90.0f; 
+    float m_targetPitchDeg = 90.0f;
+    float m_currentYawDeg = 90.0f;
+    float m_targetYawDeg = 90.0f;
+    
+    unsigned long m_lastServoUpdate = 0;
+    
+    const unsigned long UPDATE_INTERVAL_MS = 20;
+    const float STEP_SIZE_DEG = 1.8f;
 
 
     float m_SwingConstraintPitchUp = chassis_defines::SERVO_PITCH_SWING_DEFAULT_CONSTRAINT_UP;
@@ -98,22 +107,60 @@ public:
     {
         if (m_isInitialized)
         {
-            float swingConstrainedPitch = constrain(-1*swingPitch, m_SwingConstraintPitchDown, m_SwingConstraintPitchUp );
-            m_pitchServo.write(convertSwingToDegrees(swingConstrainedPitch));
-            m_currentSetSwingPitch = swingPitch;
-        }
+            float constrainedInput = constrain(swingPitch, -1.0f, 1.0f);
+            float physicalSwing = 0.0f;
 
+            if (constrainedInput > 0.0f) physicalSwing = constrainedInput * 0.422f; 
+            else if (constrainedInput < 0.0f) physicalSwing = constrainedInput * 0.318f;
+
+            float swingConstrainedPitch = constrain(-1.0f * physicalSwing, m_SwingConstraintPitchDown, m_SwingConstraintPitchUp);
+            
+            m_targetPitchDeg = convertSwingToDegrees(swingConstrainedPitch);
+            m_currentSetSwingPitch = constrainedInput;
+        }
     }
 
     void SetYaw(float swingYaw)
     {
         if (m_isInitialized)
         {
-            float swingConstrainedYaw = constrain(-1*swingYaw, m_SwingConstraintYawLeft, m_SwingConstraintYawRight);
-            m_yawServo.write(convertSwingToDegrees(swingConstrainedYaw));
+            float swingConstrainedYaw = constrain(-1.0f * swingYaw, m_SwingConstraintYawLeft, m_SwingConstraintYawRight);
+            m_targetYawDeg = convertSwingToDegrees(swingConstrainedYaw);
             m_currentSetSwingYaw = swingYaw;
         }
+    }
 
+    void Update()
+    {
+        if (!m_isInitialized) return;
+
+        unsigned long currentMillis = millis();
+        if (currentMillis - m_lastServoUpdate >= UPDATE_INTERVAL_MS)
+        {
+            m_lastServoUpdate = currentMillis;
+
+            if (abs(m_targetPitchDeg - m_currentPitchDeg) <= STEP_SIZE_DEG) {
+                m_currentPitchDeg = m_targetPitchDeg; 
+            } else if (m_currentPitchDeg < m_targetPitchDeg) {
+                m_currentPitchDeg += STEP_SIZE_DEG;
+            } else {
+                m_currentPitchDeg -= STEP_SIZE_DEG;
+            }
+            
+            int pitchUs = 544 + (int)((m_currentPitchDeg / 180.0f) * (2400.0f - 544.0f));
+            m_pitchServo.writeMicroseconds(pitchUs);
+
+            if (abs(m_targetYawDeg - m_currentYawDeg) <= STEP_SIZE_DEG) {
+                m_currentYawDeg = m_targetYawDeg;
+            } else if (m_currentYawDeg < m_targetYawDeg) {
+                m_currentYawDeg += STEP_SIZE_DEG;
+            } else {
+                m_currentYawDeg -= STEP_SIZE_DEG;
+            }
+            
+            int yawUs = 544 + (int)((m_currentYawDeg / 180.0f) * (2400.0f - 544.0f));
+            m_yawServo.writeMicroseconds(yawUs);
+        }
     }
 
     
@@ -132,5 +179,27 @@ public:
     std::pair<float, float> GetCurrentPitchYaw()
     {
         return std::pair{m_currentSetSwingPitch, m_currentSetSwingYaw};
+    }
+
+    std::pair<float, float> GetActualNormalizedSwing()
+    {
+        if (!m_isInitialized) return std::pair<float, float>{0.0f, 0.0f};
+
+        float physicalSwingPitch = (m_currentPitchDeg - 90.0f) * (2.0f / 180.0f) * -1.0f;
+        float normPitch = 0.0f;
+        
+        if (physicalSwingPitch > 0.0f) {
+            normPitch = physicalSwingPitch / 0.422f;
+        } else if (physicalSwingPitch < 0.0f) {
+            normPitch = physicalSwingPitch / 0.318f;
+        }
+
+        float physicalSwingYaw = (m_currentYawDeg - 90.0f) * (2.0f / 180.0f) * -1.0f;
+        float normYaw = physicalSwingYaw;
+
+        normPitch = constrain(normPitch, -1.0f, 1.0f);
+        normYaw = constrain(normYaw, -1.0f, 1.0f);
+
+        return std::pair<float, float>{normPitch, normYaw};
     }
 };

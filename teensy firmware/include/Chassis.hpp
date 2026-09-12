@@ -136,7 +136,7 @@ public:
             tofCsv = "4000.0";
         }
 
-        auto camPitchYaw = servosCamera.GetCurrentPitchYaw();
+        auto camPitchYaw = servosCamera.GetActualNormalizedSwing();
         float camPitch = camPitchYaw.first;
         float camYaw = camPitchYaw.second;
 
@@ -186,6 +186,8 @@ public:
         }
 
         ApplySelectedControl();
+
+        servosCamera.Update();
 
         const uint32_t now = millis();
         if (now - m_lastTelemetryTime >= TELEMETRY_INTERVAL_MS)

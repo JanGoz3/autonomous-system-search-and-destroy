@@ -13,6 +13,10 @@ public class CarAgent : Agent
     [Header("Target Object")]
     public Transform Target;
 
+    [Header("AR Tracking Link")]
+    public MockArTracker arTracker;
+    public bool useArTracking = true;
+
     [Header("Navmesh Target Spawner")]
     public LocalNavMeshSpawner spawner;
     [Header("Collision & Recovery")]
@@ -28,7 +32,8 @@ public class CarAgent : Agent
     [Header("Shooter Override")]
     public bool isEngagingTarget = false;
     public float autoAimPitch = 0f;
-    public float autoAimYaw = 0f;
+    public float autoAimYaw = 0f; 
+    public float engagementTimer = 0f;
 
     [HideInInspector]
     public bool hadCollisionThisStep = false;
@@ -47,7 +52,8 @@ public class CarAgent : Agent
     private float m_AiSteering = 0f;
     private float m_AiCamPitch = 0f;
     private float m_AiCamYaw = 0f;
-    public float engagementTimer = 0f;
+    private float m_PrevCamPitch = 0f;
+    private float m_PrevCamYaw = 0f;
 
     [Header("Training mode")]
     public bool trainingMode = true;
@@ -56,9 +62,11 @@ public class CarAgent : Agent
     {
         m_StuckTimer = 0f;
         m_IsColliding = false;
-
+        m_PrevCamPitch = 0f;
+        m_PrevCamYaw = 0f;
+        
         if (trainingMode) {
-            curriculumProgress = Mathf.Clamp01((Academy.Instance.TotalStepCount * 5 + startingStepOffset)/ 5e6f);
+            curriculumProgress = Mathf.Clamp01((Academy.Instance.TotalStepCount * 5 + startingStepOffset)/ 2e6f);
             //curriculumProgress = 1.0f;
             if (chassis != null)
             {
@@ -84,8 +92,8 @@ public class CarAgent : Agent
             {
                 float randomAngle = Random.Range(-maxSpawnAngle, maxSpawnAngle);
                 Vector3 spawnDirection = Quaternion.Euler(0, randomAngle, 0) * transform.forward;
-                Vector3 nearCarPosition = transform.position + (spawnDirection * Random.Range(1.0f, spawnRadius));
-
+                Vector3 nearCarPosition = transform.position + (spawnDirection * Random.Range(1.0f, Mathf.Lerp(1.0f, spawnRadius, curriculumProgress)));
+                
                 NavMeshHit hit;
                 if (NavMesh.SamplePosition(nearCarPosition, out hit, 5.0f, NavMesh.AllAreas))
                 {
@@ -103,8 +111,19 @@ public class CarAgent : Agent
         }
         // ###########################
 
+        if (arTracker != null)
+        {
+            arTracker.ResetSession();
+        }
+
         previousDistance = Vector3.Distance(transform.position, Target.position);
     }
+
+    // kody ArUco, na ich podstawie ustalać pozycje.
+    // https://www.youtube.com/watch?v=bS00Vs09Upw
+    // SLAM
+    // AR kit
+    
 
     public override void CollectObservations(VectorSensor sensor)
     {
@@ -112,15 +131,26 @@ public class CarAgent : Agent
         float[] telemetryData = chassis.GetTelemetryState();
 
         sensor.AddObservation(telemetryData);
-
-        Vector3 relativeTargetPos = transform.InverseTransformPoint(Target.position);
-
+        
         float maxArenaSize = 20f;
 
-        sensor.AddObservation(relativeTargetPos.x / maxArenaSize);
-        sensor.AddObservation(relativeTargetPos.z / maxArenaSize);
+        if (useArTracking && arTracker != null)
+        {
+            Vector2 relativeTarget = arTracker.GetRelativeTargetVector(Target.position);
+            sensor.AddObservation(relativeTarget.x / maxArenaSize);
+            sensor.AddObservation(relativeTarget.y / maxArenaSize);   
+        }
+        else
+        {
+            Vector3 relativeTargetPos = transform.InverseTransformPoint(Target.position);
+            sensor.AddObservation(relativeTargetPos.x / maxArenaSize);
+            sensor.AddObservation(relativeTargetPos.z / maxArenaSize);
+        }
 
-    }
+    }       
+    
+    
+    // Rewards
 
     private void OnCollisionEnter(Collision collision)
     {
@@ -167,7 +197,7 @@ public class CarAgent : Agent
         m_AiCamPitch = Mathf.Clamp(actions.ContinuousActions[2], -1f, 1f);
         m_AiCamYaw = Mathf.Clamp(actions.ContinuousActions[3], -1f, 1f);
 
-        // Rewards
+ 
         float currentDistance = Vector3.Distance(transform.position, Target.position);
 
         // kill switch if physics glitch out
@@ -177,9 +207,17 @@ public class CarAgent : Agent
             EndEpisode();
             return;
         }
+        
+        float dPitch = m_AiCamPitch - m_PrevCamPitch;
+        float dYaw = m_AiCamYaw - m_PrevCamYaw;
 
-        float cameraJitter = Mathf.Abs(m_AiCamPitch) + Mathf.Abs(m_AiCamYaw);
-        AddReward(-0.0005f * cameraJitter);
+        // squaring the dealta punishes large sudden jumps while being forgiving for small tracking adjustments
+        float actionDeltaJitter = (dPitch * dPitch) + (dYaw * dYaw);
+
+        AddReward(-0.01f * actionDeltaJitter);
+
+        m_PrevCamPitch = m_AiCamPitch;
+        m_PrevCamYaw = m_AiCamYaw;
 
         // WALL RECOVERY AND STUCK TIMER #############################
 
@@ -214,7 +252,7 @@ public class CarAgent : Agent
             float alignment = Vector3.Dot(transform.forward, directionToTarget);
             float formBonus = Mathf.Clamp01(alignment);
             float finalWinReward = 15.0f + (10.0f * formBonus);
-            SetReward(finalWinReward);
+            AddReward(finalWinReward);
             EndEpisode();
         }
         // 3. Still playing

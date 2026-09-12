@@ -7,7 +7,7 @@ public class ServosCamera : MonoBehaviour
     public Transform pitchTransform;
 
     [Header("Hardware Speeds")]
-    public float servoSpeedDegPerSec = 545.5f;
+    public float servoSpeedDegPerSec = 90f;
 
     [Header("Yaw Calibration")]
     public float physicalLeftYawAngle = -87.5f;
@@ -15,9 +15,9 @@ public class ServosCamera : MonoBehaviour
     public float physicalRightYawAngle = 76.5f;
 
     [Header("Pitch Calibration")]
-    public float physicalDownPitchAngle = 82f;
+    public float physicalDownPitchAngle = 22f;
     public float physicalCenterPitchAngle = -6f;
-    public float physicalUpPitchAngle = -86.5f;
+    public float physicalUpPitchAngle = -40f;
 
     [Header("Test Sliders")]
     public bool enableManualTesting = false;
@@ -60,15 +60,15 @@ public class ServosCamera : MonoBehaviour
         ApplyRotations();
     }
 
-    void Update()
+    void FixedUpdate()
     {
         if (enableManualTesting)
         {
             SetPitchYaw(testSwingPitch, testSwingYaw); 
         }
 
-        m_currentYawAngle = Mathf.MoveTowards(m_currentYawAngle, m_targetYawAngle, servoSpeedDegPerSec * Time.deltaTime);
-        m_currentPitchAngle = Mathf.MoveTowards(m_currentPitchAngle, m_targetPitchAngle, servoSpeedDegPerSec * Time.deltaTime);
+        m_currentYawAngle = Mathf.MoveTowards(m_currentYawAngle, m_targetYawAngle, servoSpeedDegPerSec * Time.fixedDeltaTime);
+        m_currentPitchAngle = Mathf.MoveTowards(m_currentPitchAngle, m_targetPitchAngle, servoSpeedDegPerSec * Time.fixedDeltaTime);
 
         ApplyRotations();
     }
@@ -128,5 +128,18 @@ public class ServosCamera : MonoBehaviour
     public (float pitch, float yaw) GetActualPitchYawDegrees()
     {
         return (m_currentPitchAngle, m_currentYawAngle);
+    }
+
+    public (float pitch, float yaw) GetActualNormalizedSwing()
+    {
+        float normYaw = (m_currentYawAngle < physicalCenterYawAngle)
+            ? Mathf.InverseLerp(physicalLeftYawAngle, physicalCenterYawAngle, m_currentYawAngle) - 1
+            : Mathf.InverseLerp(physicalCenterYawAngle, physicalRightYawAngle, m_currentYawAngle);
+
+        float normPitch = (m_currentPitchAngle > physicalCenterPitchAngle)
+            ? Mathf.InverseLerp(physicalDownPitchAngle, physicalCenterPitchAngle, m_currentPitchAngle) - 1f
+            : Mathf.InverseLerp(physicalCenterPitchAngle, physicalUpPitchAngle, m_currentPitchAngle);
+
+        return (Mathf.Clamp(normPitch, -1f, 1f), Mathf.Clamp(normYaw, -1f, 1f));
     }
 }
