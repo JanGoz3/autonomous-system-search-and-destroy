@@ -21,7 +21,7 @@ public class CameraVibration : MonoBehaviour
     }
 
     
-    void Update()
+    void FixedUpdate()
     {
         float intensity = 1f;
         if (carRb != null && carMotor != null)
