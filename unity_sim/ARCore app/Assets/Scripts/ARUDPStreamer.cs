@@ -4,18 +4,18 @@ using System.Text;
 
 public class ARUDPStreamer : MonoBehaviour
 {
-    public string ipAddress = "192.168.42.50";
+    public string ipAddress = "192.168.0.0";
     public int port = 5005;
 
     private UdpClient udpClient;
-
     private Vector3 positionOffset = Vector3.zero;
     private Quaternion rotationOffset = Quaternion.identity;
-
     private string statusMsg = "Waiting...";
 
     void Start()
     {
+        Screen.sleepTimeout = SleepTimeout.NeverSleep;
+
         udpClient = new UdpClient();
         Application.targetFrameRate = 30;
     }
@@ -51,18 +51,17 @@ public class ARUDPStreamer : MonoBehaviour
         int w = Screen.width;
         int h = Screen.height;
         int btnHeight = h / 8;
-        int padding = 20;
+        int padding = 40;
 
-        GUI.skin.label.fontSize = h / 30;
-        GUI.skin.textField.fontSize = h / 30;
-        GUI.skin.button.fontSize = h / 40;
+        GUI.skin.label.fontSize = h / 40;
+        GUI.skin.textField.fontSize = h / 40;
+        GUI.skin.button.fontSize = h / 30;
 
         GUI.Label(new Rect(padding, padding, w, btnHeight), "Jetson IP Address:");
         ipAddress = GUI.TextField(new Rect(padding, padding + (h / 20), w - 2 * padding, btnHeight), ipAddress);
-
         GUI.Label(new Rect(padding, padding + 2 * btnHeight, w, btnHeight), statusMsg);
 
-        if (GUI.Button(new Rect(padding, h - btnHeight - padding, w - 2 * padding, btnHeight), "SET ZERO (CALIBRATE)"))
+        if (GUI.Button(new Rect(padding, (h / 2) - (btnHeight / 2), w - 2 * padding, btnHeight * 2), "SET ZERO\n(CALIBRATE)"))
         {
             CalibrateZeroPoint();
         }
