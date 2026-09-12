@@ -1,21 +1,3 @@
-"""
-WaypointTransformer - sekwencyjny model behavior cloning dla waypointow.
-
-Rozne wzgledem DecisionTransformer:
-  * BRAK embed_return - nie ma warunkowania return-to-go
-  * BRAK embed_timestep - pozycja jest liczona WZGLEDEM OKNA kontekstu (0..K-1),
-    nie wzgledem numeru kroku w epizodzie. Dzieki temu trening i inferencja
-    widza dokladnie te same indeksy pozycyjne.
-  * BRAK tokenow akcji - jeden token na krok, same stany. Nie ma exposure bias
-    (w treningu kontekst mial akcje eksperta, w inferencji wlasne predykcje).
-  * Maska uwagi z ODBLOKOWANA DIAGONALA - zaden wiersz softmaxu nie jest w pelni
-    zamaskowany, wiec padding nie generuje NaN.
-
-Glowa akcji: kierunek jako klasyfikacja na n_dir_bins kubelkow + osobna regresja
-dlugosci. Kat liczony jako atan2(x, z), zgodnie z ukladem auta w Unity
-(x = w prawo, z = do przodu).
-"""
-
 import numpy as np
 import torch
 import torch.nn as nn
@@ -24,7 +6,7 @@ import torch.nn.functional as F
 torch.backends.mha.set_fastpath_enabled(False)
 
 
-NEG = -1e9   # zamiast -inf: przenosne miedzy ONNX Runtime i Unity Inference Engine
+NEG = -1e9
 
 
 class WaypointTransformer(nn.Module):
@@ -59,11 +41,7 @@ class WaypointTransformer(nn.Module):
         self.register_buffer("bin_centers", centers)
 
         K = context_length
-        # Maski liczone RAZ, jako bufory. Liczenie ich w forward przez torch.eye
-        # eksportuje sie do wezla ONNX EyeLike, ktorego ani ONNX Runtime, ani
-        # Unity Inference Engine nie implementuja.
-        # persistent=False: to stale, nie parametry. Trzymanie ich w state_dict
-        # zepsulo by wczytywanie checkpointow przy kazdej zmianie K.
+
         self.register_buffer("causal_add",
                              torch.triu(torch.full((K, K), NEG), diagonal=1),
                              persistent=False)
@@ -72,16 +50,8 @@ class WaypointTransformer(nn.Module):
         self.register_buffer("positions",
                              torch.arange(K, dtype=torch.long), persistent=False)
 
-    # ------------------------------------------------------------------
 
     def _attn_mask(self, attention_mask):
-        """Addytywna maska (B*n_head, K, K).
-
-        Sklada sie z przyczynowosci i paddingu, ale diagonala pozostaje
-        odblokowana: wiersz softmaxu zamaskowany w CALOSCI daje NaN, ktory w
-        kolejnej warstwie mnozy sie przez wage 0 (0 * NaN = NaN) i rozlewa sie
-        na wszystkie pozycje. Na tym polegal blad w poprzedniej wersji.
-        """
         B, K = attention_mask.shape
         pad_add = (1.0 - attention_mask).unsqueeze(1) * NEG      # (B, 1, K)
         pad_add = pad_add * self.keep_diag.unsqueeze(0)          # diagonala wolna
