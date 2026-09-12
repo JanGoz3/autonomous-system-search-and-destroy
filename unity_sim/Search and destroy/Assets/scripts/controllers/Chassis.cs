@@ -59,7 +59,7 @@ public class Chassis : MonoBehaviour
     {
         Vector3 accel = imu.GetAccelerometer();
         Vector3 gyro = imu.GetGyroscope();
-        var cameraState = servosCamera.GetCurrentPitchYaw();
+        var cameraState = servosCamera.GetActualNormalizedSwing();
 
         float maxAccel = 16f;
         float maxGyro = 2000f;
