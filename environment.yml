@@ -1,71 +1,121 @@
-name: unity-ai
+name: mlagents_clean
 channels:
-  - conda-forge
   - defaults
 dependencies:
-  - blas=1.0=mkl
-  - bzip2=1.0.8=h2bbff1b_6
-  - ca-certificates=2026.6.17=h4c7d964_0
-  - intel-openmp=2026.0.0=h57928b3_951
-  - libexpat=2.8.1=hac47afa_1
+  - ca-certificates=2026.5.14=haa95532_0
   - libffi=3.4.8=h42d73b9_3
-  - libhwloc=2.13.0=default_h049141e_1000
-  - libiconv=1.18=hc1393d2_2
-  - liblzma=5.8.2=hfd05255_0
-  - libsqlite=3.53.2=hf5d6505_0
-  - libwinpthread=12.0.0.r4.gg4f2fc60ca=h57928b3_10
-  - libxml2=2.15.2=h5d26750_0
-  - libxml2-16=2.15.2=h692994f_0
-  - libzlib=1.3.2=h1c6eee0_0
-  - mkl=2021.4.0=h0e2418a_729
-  - mkl-service=2.4.0=py310hcf6e17e_0
-  - mkl_fft=1.3.1=py310ha0764ea_0
-  - mkl_random=1.2.2=py310h4ed8f06_0
-  - numpy-base=1.21.2=py310h0829f74_0
-  - openssl=3.6.3=hf411b9b_0
-  - packaging=26.0=py310haa95532_0
-  - pip=26.1.1=pyhc872135_1
-  - python=3.10.20=hc20f281_0_cpython
-  - python_abi=3.10=8_cp310
-  - six=1.17.0=pyhe01879c_1
+  - openssl=3.5.7=hbb43b14_0
+  - pip=24.2=py38haa95532_0
+  - python=3.8.20=h8205438_0
   - sqlite=3.53.2=hee5a0db_0
-  - tbb=2021.13.0=h3155e25_6
-  - tk=8.6.15=hf199647_0
-  - tzdata=2026b=he532380_0
   - ucrt=10.0.22621.0=haa95532_0
   - vc=14.3=h2df5915_12
   - vc14_runtime=14.44.35208=h4927774_12
   - vs2015_runtime=14.44.35208=ha6b5a95_12
-  - wheel=0.47.0=py310haa95532_0
-  - xz=5.8.2=h53af0af_0
-  - zlib=1.3.2=h1c6eee0_0
+  - wheel=0.44.0=py38haa95532_0
   - pip:
-      - absl-py==2.4.0
-      - attrs==26.1.0
+      - absl-py==2.3.1
+      - aiohappyeyeballs==2.4.4
+      - aiohttp==3.10.11
+      - aiosignal==1.3.1
+      - albucore==0.0.17
+      - albumentations==1.4.18
+      - annotated-types==0.7.0
+      - async-timeout==5.0.1
+      - attrs==25.3.0
+      - backoff==2.2.1
       - cattrs==1.5.0
+      - certifi==2026.7.22
+      - cffi==1.17.1
+      - charset-normalizer==3.4.9
       - cloudpickle==3.1.2
-      - filelock==3.29.4
-      - fsspec==2026.6.0
-      - grpcio==1.81.1
-      - h5py==3.16.0
+      - colorama==0.4.6
+      - coloredlogs==15.0.1
+      - contourpy==1.1.1
+      - cryptography==47.0.0
+      - cycler==0.12.1
+      - dataclasses-json==0.6.7
+      - defusedxml==0.7.1
+      - eval-type-backport==0.4.0
+      - filelock==3.16.1
+      - flatbuffers==25.12.19
+      - fonttools==4.57.0
+      - frozenlist==1.5.0
+      - fsspec==2025.3.0
+      - google-auth==2.50.0
+      - google-auth-oauthlib==1.0.0
+      - grpcio==1.70.0
+      - gym==0.26.2
+      - gym-notices==0.1.0
+      - h5py==3.11.0
+      - humanfriendly==10.0
+      - idna==3.15
+      - imageio==2.35.1
+      - importlib-metadata==8.5.0
+      - importlib-resources==6.4.5
+      - inference-sdk==0.37.1
       - jinja2==3.1.6
-      - markdown==3.10.2
-      - markupsafe==3.0.3
-      - mlagents==0.28.0
-      - mlagents-envs==0.28.0
+      - kiwisolver==1.4.7
+      - lazy-loader==0.4
+      - markdown==3.7
+      - markupsafe==2.1.5
+      - marshmallow==3.22.0
+      - matplotlib==3.7.5
+      - ml-dtypes==0.2.0
+      - mlagents==0.30.0
+      - mlagents-envs==0.30.0
       - mpmath==1.3.0
-      - networkx==3.4.2
-      - numpy==1.26.4
-      - pillow==12.2.0
+      - multidict==6.1.0
+      - mypy-extensions==1.1.0
+      - networkx==3.1
+      - numpy==1.24.4
+      - nvidia-ml-py==13.610.43
+      - oauthlib==3.3.1
+      - onnx==1.17.0
+      - onnxruntime==1.19.2
+      - onnxslim==0.1.95
+      - opencv-python==5.0.0.93
+      - packaging==26.2
+      - pettingzoo==1.15.0
+      - pillow==10.4.0
+      - polars==1.8.2
+      - propcache==0.2.0
       - protobuf==3.20.3
+      - psutil==7.2.2
+      - py-cpuinfo==9.0.0
+      - pyasn1==0.6.4
+      - pyasn1-modules==0.4.2
+      - pycparser==2.23
+      - pydantic==2.10.6
+      - pydantic-core==2.27.2
+      - pyparsing==3.1.4
       - pypiwin32==223
-      - pywin32==312
+      - pyreadline3==3.5.6
+      - python-dateutil==2.9.0.post0
+      - pywavelets==1.4.1
+      - pywin32==311
       - pyyaml==6.0.3
-      - setuptools==81.0.0
-      - sympy==1.14.0
-      - tensorboard==2.20.0
+      - requests==2.32.4
+      - requests-oauthlib==2.0.0
+      - scikit-image==0.21.0
+      - scipy==1.10.0
+      - setuptools==65.5.0
+      - six==1.17.0
+      - supervision==0.25.1
+      - sympy==1.13.3
+      - tensorboard==2.14.0
       - tensorboard-data-server==0.7.2
-      - torch==2.12.1
-      - typing-extensions==4.15.0
-      - werkzeug==3.1.8
-prefix: C:\Users\Damrok\miniconda3\envs\unity-ai
+      - tifffile==2023.7.10
+      - torch==2.4.1+cu121
+      - torchaudio==2.4.1+cu121
+      - torchvision==0.19.1+cu121
+      - tqdm==4.70.0
+      - typing-extensions==4.13.2
+      - typing-inspect==0.9.0
+      - ultralytics==8.4.113
+      - ultralytics-thop==2.1.6
+      - urllib3==2.2.3
+      - werkzeug==3.0.6
+      - yarl==1.15.2
+      - zipp==3.20.2
+prefix: C:\Users\Damrok\miniconda3\envs\mlagents_clean
