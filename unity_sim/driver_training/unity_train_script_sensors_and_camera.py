@@ -48,9 +48,7 @@ class TrainingTracker:
         means = np.array(self.history_mean_rewards)
         stds = np.array(self.history_std_rewards)
 
-        # Plot mean reward curve
         plt.plot(steps, means, label='Mean Reward (Last 100)', color='b', linewidth=2)
-        # Plot standard deviation shading band
         plt.fill_between(steps, means - stds, means + stds, color='b', alpha=0.15, label='Std Deviation')
 
         plt.title('Autonomous Car RL Training Progress')
@@ -59,8 +57,6 @@ class TrainingTracker:
         plt.grid(True, linestyle='--', alpha=0.6)
         plt.legend(loc='upper left')
         plt.tight_layout()
-
-        # Save overwrite file
         plt.savefig(filename)
         plt.close()
 
@@ -81,7 +77,7 @@ MINIBATCH_SIZE = 1024
 CLIP_COEF = 0.2
 ENT_COEF = 0.01
 VF_COEF = 0.5
-CHECKPOINT_FILE = "driver_V6_checkpoint.pth"
+CHECKPOINT_FILE = "driver_V7_checkpoint.pth"
 
 engine_channel = EngineConfigurationChannel()
 engine_channel.set_configuration_parameters(time_scale=5.0)
@@ -139,8 +135,6 @@ try:
         state_space = STATE_SPACE * STACKED_VECTORS,
         buffer_size=2048
     )
-
-    # TODO: optionally add retrieving from the environment action space and state space
 
     state_tensor = torch.zeros((nr_of_agents, STATE_SPACE * STACKED_VECTORS), dtype=torch.float32).to(device)
     for i, agent_id in enumerate(decision_steps.agent_id):
@@ -224,6 +218,32 @@ try:
             print(f"==================================================")
             print("buffer full. Training.")
 
+            # ==========================================
+            # SAVE CHECKPOINT
+            # ==========================================
+            save_data = {
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'tracker_history': {
+                    'steps': tracker.history_steps,
+                    'means': tracker.history_mean_rewards,
+                    'stds': tracker.history_std_rewards
+                }
+            }
+            torch.save(save_data, f'unity_sim/driver_training/{CHECKPOINT_FILE}')
+            print(f"Checkpoint successfully saved to unity_sim/driver_training/{CHECKPOINT_FILE}")
+
+            if mean_rew > best_mean_reward:
+                best_mean_reward = mean_rew
+                
+                formatted_reward = f"{mean_rew:.2f}".replace('.', '_')
+                dynamic_best_file = f"unity_sim/driver_training/{CHECKPOINT_FILE.removesuffix('.pth')}_{formatted_reward}.pth"
+                
+                torch.save(save_data, dynamic_best_file)
+                print(f"*** NEW ALL-TIME BEST MODEL. Saved to {dynamic_best_file} (Reward: {mean_rew:.2f}) ***")
+
+            # ==========================================
+
             with torch.no_grad():
                 next_value = model.get_value(state_tensor).flatten()
 
@@ -306,52 +326,16 @@ try:
 
             buffer.reset()
 
-            # ==========================================
-            # SAVE CHECKPOINT
-            # ==========================================
-            save_data = {
-                'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'tracker_history': {
-                    'steps': tracker.history_steps,
-                    'means': tracker.history_mean_rewards,
-                    'stds': tracker.history_std_rewards
-                }
-            }
-            # 1. Always save the standard rolling checkpoint to resume from
-            torch.save(save_data, f'unity_sim/driver_training/{CHECKPOINT_FILE}')
-            print(f"Checkpoint successfully saved to unity_sim/driver_training/{CHECKPOINT_FILE}")
-
-            # 2. Save a dedicated copy with the dynamic reward name if we beat our personal best
-            if mean_rew > best_mean_reward:
-                best_mean_reward = mean_rew
-                
-                # Format the reward from a float like 20.5833 to a string like "20_58"
-                formatted_reward = f"{mean_rew:.2f}".replace('.', '_')
-                
-                # Construct the dynamic file name
-                dynamic_best_file = f"unity_sim/driver_training/{formatted_reward}_{CHECKPOINT_FILE}"
-                
-                torch.save(save_data, dynamic_best_file)
-                print(f"*** NEW ALL-TIME BEST MODEL. Saved to {dynamic_best_file} (Reward: {mean_rew:.2f}) ***")
-
-            # ==========================================
-
-
 except KeyboardInterrupt:
     print('stopped by user')
 except Exception as e:
     print(f'an error occured: {e}')
 
 finally:
-    env.close()  # Unfreezes Unity gracefully
-    
-    # 1. Prepare for export
+    env.close()
     model.eval()
     dummy_input = torch.randn(1, STATE_SPACE * STACKED_VECTORS, device=device)
     onnx_filename = "DriverNet.onnx"
-
-    # 2. Export natively via PyTorch
     torch.onnx.export(
         model,
         dummy_input,
