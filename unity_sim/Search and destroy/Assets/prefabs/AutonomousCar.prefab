@@ -842,7 +842,7 @@ MonoBehaviour:
   physicalLeftYawAngle: -87.5
   physicalCenterYawAngle: -3.5
   physicalRightYawAngle: 76.5
-  physicalDownPitchAngle: 22
+  physicalDownPitchAngle: 5
   physicalCenterPitchAngle: -6
   physicalUpPitchAngle: -40
   enableManualTesting: 0
@@ -962,8 +962,9 @@ MonoBehaviour:
   isEngagingTarget: 0
   autoAimPitch: 0
   autoAimYaw: 0
-  hadCollisionThisStep: 0
   engagementTimer: 0
+  hadCollisionThisStep: 0
+  externalControl: 0
   trainingMode: 0
   startingStepOffset: 0
 --- !u!114 &8360594413510804119
@@ -2264,7 +2265,7 @@ MonoBehaviour:
   frequency: 25
   carRb: {fileID: 1217116758590559756}
   carMotor: {fileID: 960083404246799892}
-  stationaryVibrationMultiplier: 0.2
+  stationaryVibrationMultiplier: 0
 --- !u!1 &8547227188411028532
 GameObject:
   m_ObjectHideFlags: 0
