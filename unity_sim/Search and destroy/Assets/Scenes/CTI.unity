@@ -797,6 +797,10 @@ PrefabInstance:
       value: 1500
       objectReference: {fileID: 0}
     - target: {fileID: 3815576015037651868, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
+      propertyPath: meshRenderer
+      value: 
+      objectReference: {fileID: 976228423}
+    - target: {fileID: 3815576015037651868, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
       propertyPath: trainingMode
       value: 1
       objectReference: {fileID: 0}
@@ -898,6 +902,10 @@ PrefabInstance:
       value: 1500
       objectReference: {fileID: 0}
     - target: {fileID: 3815576015037651868, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
+      propertyPath: meshRenderer
+      value: 
+      objectReference: {fileID: 1038401676}
+    - target: {fileID: 3815576015037651868, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
       propertyPath: trainingMode
       value: 1
       objectReference: {fileID: 0}
@@ -966,6 +974,11 @@ PrefabInstance:
     m_AddedGameObjects: []
     m_AddedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
+--- !u!23 &976228423 stripped
+MeshRenderer:
+  m_CorrespondingSourceObject: {fileID: 4521541792692793830, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
+  m_PrefabInstance: {fileID: 967639238}
+  m_PrefabAsset: {fileID: 0}
 --- !u!4 &988796390 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: 6585656026655391815, guid: e3472d196ab53b04db4d14085e8b7895, type: 3}
@@ -1027,6 +1040,11 @@ Transform:
 Transform:
   m_CorrespondingSourceObject: {fileID: 7355834142376369798, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
   m_PrefabInstance: {fileID: 1462278602}
+  m_PrefabAsset: {fileID: 0}
+--- !u!23 &1038401676 stripped
+MeshRenderer:
+  m_CorrespondingSourceObject: {fileID: 4521541792692793830, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
+  m_PrefabInstance: {fileID: 974666232}
   m_PrefabAsset: {fileID: 0}
 --- !u!4 &1051248889 stripped
 Transform:
@@ -1250,6 +1268,11 @@ PrefabInstance:
     m_AddedGameObjects: []
     m_AddedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: 3dd0d633a5567d34b85dc52a2f96ea41, type: 3}
+--- !u!23 &1377443992 stripped
+MeshRenderer:
+  m_CorrespondingSourceObject: {fileID: 4521541792692793830, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
+  m_PrefabInstance: {fileID: 1462278602}
+  m_PrefabAsset: {fileID: 0}
 --- !u!4 &1398512196 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: -8679921383154817045, guid: 4f0aaa004a13fba4ca9c6dbc19d3b1fb, type: 3}
@@ -1307,6 +1330,10 @@ PrefabInstance:
       propertyPath: MaxStep
       value: 1500
       objectReference: {fileID: 0}
+    - target: {fileID: 3815576015037651868, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
+      propertyPath: meshRenderer
+      value: 
+      objectReference: {fileID: 1377443992}
     - target: {fileID: 3815576015037651868, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
       propertyPath: trainingMode
       value: 1
@@ -1625,6 +1652,11 @@ Transform:
   m_CorrespondingSourceObject: {fileID: -8679921383154817045, guid: 4f0aaa004a13fba4ca9c6dbc19d3b1fb, type: 3}
   m_PrefabInstance: {fileID: 6988649780796180243}
   m_PrefabAsset: {fileID: 0}
+--- !u!23 &1718054776 stripped
+MeshRenderer:
+  m_CorrespondingSourceObject: {fileID: 4521541792692793830, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
+  m_PrefabInstance: {fileID: 1945496550}
+  m_PrefabAsset: {fileID: 0}
 --- !u!4 &1754916413 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: 640581362104574181, guid: 786709d35d2bad9428dbf531f483b99d, type: 3}
@@ -1682,6 +1714,10 @@ PrefabInstance:
       propertyPath: MaxStep
       value: 1500
       objectReference: {fileID: 0}
+    - target: {fileID: 3815576015037651868, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
+      propertyPath: meshRenderer
+      value: 
+      objectReference: {fileID: 1718054776}
     - target: {fileID: 3815576015037651868, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
       propertyPath: trainingMode
       value: 1
@@ -5765,22 +5801,14 @@ PrefabInstance:
       propertyPath: m_IsActive
       value: 1
       objectReference: {fileID: 0}
+    - target: {fileID: 3393260463508996764, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
+      propertyPath: m_Enabled
+      value: 0
+      objectReference: {fileID: 0}
     - target: {fileID: 3815576015037651868, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
       propertyPath: Target
       value: 
       objectReference: {fileID: 1820580060}
-    - target: {fileID: 3815576015037651868, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
-      propertyPath: MaxStep
-      value: 1500
-      objectReference: {fileID: 0}
-    - target: {fileID: 3815576015037651868, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
-      propertyPath: trainingMode
-      value: 1
-      objectReference: {fileID: 0}
-    - target: {fileID: 3815576015037651868, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
-      propertyPath: startingStepOffset
-      value: 0
-      objectReference: {fileID: 0}
     - target: {fileID: 7355834142376369798, guid: f75468c2c47bd1a4aa94edc258419332, type: 3}
       propertyPath: m_LocalPosition.x
       value: -2.0149999
