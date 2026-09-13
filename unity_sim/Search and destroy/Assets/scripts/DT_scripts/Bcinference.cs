@@ -173,6 +173,33 @@ public class BCInference : MonoBehaviour
     public int decisionsWhileStalled = 0;
     [Tooltip("Ile razy odpalil manewr wychodzenia z zaklinowania.")]
     public int recoveryCount = 0;
+
+    [Header("Diagnostyka decyzji (dla BCExpertComparisonLogger)")]
+    [Tooltip("SUROWY argmax rozkladu kierunku, PRZED bramka stozka. Rozne od "
+           + "lastAngleDeg pokazuje, ile bramka faktycznie zmienila.")]
+    public float lastRawArgmaxAngleDeg;
+    [Tooltip("Propozycja modelu po bramce stozka i martwej strefie, ale PRZED "
+           + "sprawdzeniem przejezdnosci. Ustawiane takze przy wstrzymanej decyzji - "
+           + "lastAngleDeg zostaje wtedy z poprzedniego kroku i logowanie go "
+           + "zafalszowalo by wlasnie te wiersze, ktore sa najciekawsze.")]
+    public float lastProposedAngleDeg;
+    public float lastProposedMagM;
+    [Tooltip("Co FAKTYCZNIE dostal PPO: kat i dlugosc liczone z desired PO skroceniu "
+           + "przez filtr przejezdnosci ORAZ po rzucie na NavMesh. Waypoint przechodzi "
+           + "dwa niezalezne przeksztalcenia po propozycji, wiec applied != proposed. "
+           + "NaN oznacza, ze w tej decyzji nie zastosowano nic (held / recovery / "
+           + "poza siatka) - rozroznia to trojka flag ponizej.")]
+    public float lastAppliedAngleDeg;
+    public float lastAppliedMagM;
+    [Tooltip("Dystans przebyty od poprzedniej decyzji, w metrach.")]
+    public float lastMovedSinceDecision;
+    [Tooltip("Flagi DLA BIEZACEJ decyzji, zerowane na jej poczatku - nie liczniki.")]
+    public bool lastDecisionHeld;
+    public bool lastDecisionApplied;
+    public bool lastDecisionRecoveryStarted;
+    [Tooltip("Rosnie przy kazdej decyzji, takze wstrzymanej. Logger diagnostyczny "
+           + "wykrywa po tym nowa decyzje, zamiast logowac co klatke.")]
+    public int decisionSerial = 0;
     public bool isRecovering = false;
 
     private Worker m_Worker;
@@ -366,7 +393,8 @@ public class BCInference : MonoBehaviour
     {
         int rawBest = 0;
         for (int i = 1; i < nDirBins; i++) if (probs[i] > probs[rawBest]) rawBest = i;
-        argmaxOutside = Mathf.Abs(BinCenterDeg(rawBest)) > maxCommandAngleDeg;
+        lastRawArgmaxAngleDeg = BinCenterDeg(rawBest);
+        argmaxOutside = Mathf.Abs(lastRawArgmaxAngleDeg) > maxCommandAngleDeg;
 
         coneMass = 0f;
         int best = -1;
@@ -506,11 +534,25 @@ public class BCInference : MonoBehaviour
 
         if (outside) argmaxOutsideCone++;
         lastConeMass = coneMass;
+        decisionSerial++;
+
+        lastDecisionHeld = false;
+        lastDecisionApplied = false;
+        lastDecisionRecoveryStarted = false;
+        lastAppliedAngleDeg = float.NaN;
+        lastAppliedMagM = float.NaN;
+
+        if (straightDeadzoneDeg > 0f && Mathf.Abs(angleDeg) < straightDeadzoneDeg)
+            angleDeg = 0f;
+
+        lastProposedAngleDeg = angleDeg;
+        lastProposedMagM = magM;
 
         Vector3 nowPos = carTransform.position;
         float moved = Vector3.Distance(new Vector3(nowPos.x, 0f, nowPos.z),
                                        new Vector3(m_LastDecisionPos.x, 0f, m_LastDecisionPos.z));
         m_LastDecisionPos = nowPos;
+        lastMovedSinceDecision = moved;
 
         bool stalled = decisionCount > 0 && moved < stallDistanceM;
         if (stalled) decisionsWhileStalled++;
@@ -520,6 +562,7 @@ public class BCInference : MonoBehaviour
             m_StalledStreak = stalled ? m_StalledStreak + 1 : 0;
             if (m_StalledStreak >= stallThresholdDecisions)
             {
+                lastDecisionRecoveryStarted = true;
                 BeginRecovery();
                 return;
             }
@@ -528,15 +571,13 @@ public class BCInference : MonoBehaviour
         bool held = coneMass < minConeMass;
         if (held)
         {
+            lastDecisionHeld = true;
             decisionsHeld++;
             LogDecision(nowPos, angleDeg, magM, coneMass, moved, false, true);
             decisionCount++;
             if (flushEveryDecisions > 0 && decisionCount % flushEveryDecisions == 0) FlushLog();
             return;
         }
-
-        if (straightDeadzoneDeg > 0f && Mathf.Abs(angleDeg) < straightDeadzoneDeg)
-            angleDeg = 0f;
 
         if (debugForceForward) { angleDeg = 0f; magM = 1.5f; }
 
@@ -569,6 +610,7 @@ public class BCInference : MonoBehaviour
             waypointsShortened++;
             if (reachLimit < minWaypointDistance)
             {
+                lastDecisionHeld = true;
                 decisionsHeld++;
                 LogDecision(nowPos, angleDeg, magM, coneMass, moved, false, true);
                 decisionCount++;
@@ -596,7 +638,14 @@ public class BCInference : MonoBehaviour
             else { offMesh = true; waypointsOffNavMesh++; }
         }
 
-        if (!offMesh) target.position = desired + new Vector3(0f, 0.05f, 0f);
+        if (!offMesh)
+        {
+            target.position = desired + new Vector3(0f, 0.05f, 0f);
+            Vector3 loc = Quaternion.Inverse(carYaw) * (desired - carPos);
+            lastAppliedAngleDeg = Mathf.Atan2(loc.x, loc.z) * Mathf.Rad2Deg;
+            lastAppliedMagM = new Vector2(loc.x, loc.z).magnitude;
+            lastDecisionApplied = true;
+        }
 
         LogDecision(nowPos, angleDeg, magM, coneMass, moved, offMesh, false);
         decisionCount++;

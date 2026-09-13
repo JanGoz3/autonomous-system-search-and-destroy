@@ -9,6 +9,14 @@ public class AutoExplorer : MonoBehaviour
     public Transform carTransform;
     public Rigidbody carRigidbody;
     public Transform target;
+    [Tooltip("Gdy podpiety, etykieta ekspercka jest wyrazana w ukladzie auta wedlug "
+           + "ZASZUMIONEJ pozy AR, a nie prawdziwego transformu. Etykieta to kierunek w "
+           + "ukladzie auta, wiec przy bledzie kursu eps rozni sie od prawdziwej o -eps. "
+           + "Przy inferencji BCInference buduje punkt swiata z tej samej pozy AR, wiec "
+           + "fizyczny kierunek jazdy wychodzi (theta+eps) + (alpha-eps) = theta+alpha, "
+           + "czyli POPRAWNY. Z etykieta w prawdziwym ukladzie blad rownalby sie pelnemu "
+           + "dryfowi. Puste pole = stare zachowanie.")]
+    public MockArTracker arTracker;
     [Tooltip("Opcjonalne. Jesli podpiete, zaklinowanie KONCZY epizod (logger zapisuje fragment albo odrzuca go, gdy za krotki) i dopiero potem auto jest przenoszone.")]
     public DTDataLogger dataLogger;
     [Tooltip("Opcjonalne, ale ZALECANE. Bufor ToF indeksuje sektory yawem WZGLEDEM AUTA i trzyma pomiary przez maxMeasurementAgeSeconds. Po teleportacji te pomiary opisuja poprzednie miejsce - nie sa 'stare', tylko FALSZYWE.")]
@@ -207,7 +215,7 @@ public class AutoExplorer : MonoBehaviour
         float d = forcedSpawnDistance >= 0f
                 ? Mathf.Repeat(forcedSpawnDistance, Mathf.Max(0.01f, routeLength))
                 : Random.Range(0f, routeLength);
-        forcedSpawnDistance = -1f;          // zuzywa sie jednorazowo
+        forcedSpawnDistance = -1f;
         Vector3 pos = route.PointAtDistance(d);
 
         Vector3 ahead = route.PointAtDistance(d + 1f);
@@ -228,6 +236,8 @@ public class AutoExplorer : MonoBehaviour
         }
 
         if (tofScanBuffer != null) tofScanBuffer.Clear();
+
+        if (arTracker != null) arTracker.ResetSession();
 
         progressAlongRoute = d;
         stuckAnchor = carTransform.position;
@@ -444,7 +454,7 @@ public class AutoExplorer : MonoBehaviour
                                 navPath.corners[i + 1] + Vector3.up * 0.05f);
         }
 
-        Gizmos.color = expertPathValid ? Color.green : Color.red;   // pursuit point EKSPERTA
+        Gizmos.color = expertPathValid ? Color.green : Color.red;
         Gizmos.DrawWireSphere(expertWorldWaypointRaw + Vector3.up * 0.1f, 0.3f);
         Gizmos.DrawLine(carTransform.position, expertWorldWaypointRaw);
 
@@ -456,12 +466,12 @@ public class AutoExplorer : MonoBehaviour
 
         if (route != null)
         {
-            Gizmos.color = Color.magenta;                 // rzut auta na trase
+            Gizmos.color = Color.magenta;
             Gizmos.DrawWireSphere(
                 route.PointAtDistance(progressAlongRoute) + Vector3.up * 0.1f, 0.2f);
         }
 
-        Gizmos.color = Color.cyan;                        // kierunek auta
+        Gizmos.color = Color.cyan;
         Gizmos.DrawRay(carTransform.position,
             Quaternion.Euler(0f, carTransform.eulerAngles.y, 0f) * Vector3.forward * 1.5f);
     }
