@@ -1,7 +1,7 @@
 from ultralytics import YOLO
 import albumentations as A
 
-model = YOLO('yolo26m.pt') 
+model = YOLO('last.pt') 
 
 custom_camera_noise = [
     # Heavy multi-channel color grain (simulates sensor noise in low light)
@@ -30,28 +30,38 @@ custom_camera_noise = [
         quality_range=(35, 75), 
         p=0.4
     ),
+
+    A.MotionBlur(
+        blur_limit=3, 
+        p=0.4
+    ),
 ]
 
 if __name__ == '__main__':
     results = model.train(
-        data='data2/data.yaml', 
-        epochs=50,      
+        data='data/data.yaml', 
+        epochs=50,
+        lr0 = 0.001, # starting lr
+        lrf = 0.01,  # final learning rate multiplier lr = lr0 * lrf
+        warmup_epochs = 0,      
         imgsz=320,       
         batch=16,        
         device=0, 
-        name='YOLO26_ours_rebalanced_unfrozen_v4', # Nazwa folderu, w którym zapiszą się wyniki,
-        patience = 10,
+        name='YOLO26_ours_v5', # Nazwa folderu, w którym zapiszą się wyniki,
+        patience = 20,
         workers = 4,
         #freeze = 10, # freeze the first 10 modules
-        cls_pw = 1.0,
+        cls_pw = 0.75,
 
-        # preventing double augumentation
         degrees = 0.0,
-        fliplr = 0.0,
-        hsv_v = 0.0,
+        fliplr = 0.5,
+        hsv_v = 0.1,
+        hsv_h = 0.015, # Slight shift in color hue
+        hsv_s = 0.7,   # Moderate shift in color saturation
+        erasing = 0.4,
 
         # low res protections
-        mosaic = 0.5,
+        mosaic = 0.0,
         scale = 0.2,
         translate = 0.1,
 
