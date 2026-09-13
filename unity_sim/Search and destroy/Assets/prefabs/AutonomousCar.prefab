@@ -949,9 +949,10 @@ MonoBehaviour:
   agentParameters:
     maxStep: 0
   hasUpgradedFromAgentParameters: 1
-  MaxStep: 0
+  MaxStep: 1500
   chassis: {fileID: -2845163636235054939}
   Target: {fileID: 0}
+  meshRenderer: {fileID: 4521541792692793830}
   arTracker: {fileID: 227401069973098485}
   useArTracking: 1
   spawner: {fileID: 7803501602790189171}
@@ -965,7 +966,7 @@ MonoBehaviour:
   engagementTimer: 0
   hadCollisionThisStep: 0
   externalControl: 0
-  trainingMode: 0
+  trainingMode: 1
   startingStepOffset: 0
 --- !u!114 &8360594413510804119
 MonoBehaviour:

@@ -70,14 +70,14 @@ GAE_LAMBDA = 0.95
 STACKED_VECTORS = 3
 STATE_SPACE = 40
 ACTION_SPACE = 4
-LEARNING_RATE = 3e-4
-#LEARNING_RATE = 5e-5
+# LEARNING_RATE = 3e-4
+LEARNING_RATE = 5e-5
 PPO_EPOCHS = 4
 MINIBATCH_SIZE = 1024
 CLIP_COEF = 0.2
 ENT_COEF = 0.01
 VF_COEF = 0.5
-CHECKPOINT_FILE = "driver_V7_checkpoint.pth"
+CHECKPOINT_FILE = "driver_V8_checkpoint.pth"
 
 engine_channel = EngineConfigurationChannel()
 engine_channel.set_configuration_parameters(time_scale=5.0)
