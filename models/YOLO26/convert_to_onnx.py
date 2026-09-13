@@ -1,6 +1,6 @@
 from ultralytics import YOLO
 
-model = YOLO("yolo_ours_v4.pt")
+model = YOLO("yolo_ours_v5.pt")
 
 print('exporting to onnx...')
 model.export(format='onnx', imgsz = 320, opset = 12)
