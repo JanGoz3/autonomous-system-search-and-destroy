@@ -8,7 +8,6 @@ public class TofScanBuffer : MonoBehaviour
 
     [Header("Scan Configuration")]
     [Min(1)] public int sectorCount = 16;
-    // AutonomousCar.prefab: physicalLeftYawAngle = -87.5, physicalRightYawAngle = 76.5 stopnia.
     public float minYawDegrees = -87.5f;
     public float maxYawDegrees = 76.5f;
     [Min(0.01f)] public float maxMeasurementAgeSeconds = 5f;
@@ -17,7 +16,7 @@ public class TofScanBuffer : MonoBehaviour
     [Tooltip("Ile sektorow ma swiezy pomiar. Jesli utrzymuje sie blisko 1, wiezyczka nie omiata zakresu i profil nie powstaje.")]
     public int freshSectors = 0;
 
-    private const float MaxDistanceMm = 4000f;
+    private const float MaxDistanceMm = 3000f;
     private float[] distancesMm;
     private float[] pitchesDeg;
     private float[] measurementTimes;
@@ -101,8 +100,9 @@ public class TofScanBuffer : MonoBehaviour
         float now = Time.time;
         float[] snapshot = new float[SectorCount];
         for (int s = 0; s < snapshot.Length; s++)
-            if (IsFresh(s, now))
-                snapshot[s] = Mathf.Clamp01(distancesMm[s] / MaxDistanceMm);
+            snapshot[s] = IsFresh(s, now)
+                ? Mathf.Clamp01(distancesMm[s] / MaxDistanceMm)
+                : 1f;
         return snapshot;
     }
 

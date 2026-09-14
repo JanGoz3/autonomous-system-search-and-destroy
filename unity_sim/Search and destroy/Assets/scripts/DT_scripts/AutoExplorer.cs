@@ -9,6 +9,14 @@ public class AutoExplorer : MonoBehaviour
     public Transform carTransform;
     public Rigidbody carRigidbody;
     public Transform target;
+    [Tooltip("Gdy podpiety, etykieta ekspercka jest wyrazana w ukladzie auta wedlug "
+           + "ZASZUMIONEJ pozy AR, a nie prawdziwego transformu. Etykieta to kierunek w "
+           + "ukladzie auta, wiec przy bledzie kursu eps rozni sie od prawdziwej o -eps. "
+           + "Przy inferencji BCInference buduje punkt swiata z tej samej pozy AR, wiec "
+           + "fizyczny kierunek jazdy wychodzi (theta+eps) + (alpha-eps) = theta+alpha, "
+           + "czyli POPRAWNY. Z etykieta w prawdziwym ukladzie blad rownalby sie pelnemu "
+           + "dryfowi. Puste pole = stare zachowanie.")]
+    public MockArTracker arTracker;
     [Tooltip("Opcjonalne. Jesli podpiete, zaklinowanie KONCZY epizod (logger zapisuje fragment albo odrzuca go, gdy za krotki) i dopiero potem auto jest przenoszone.")]
     public DTDataLogger dataLogger;
     [Tooltip("Opcjonalne, ale ZALECANE. Bufor ToF indeksuje sektory yawem WZGLEDEM AUTA i trzyma pomiary przez maxMeasurementAgeSeconds. Po teleportacji te pomiary opisuja poprzednie miejsce - nie sa 'stare', tylko FALSZYWE.")]
@@ -19,8 +27,10 @@ public class AutoExplorer : MonoBehaviour
     public float lookAheadDistance = 1.5f;
     [Tooltip("Jak daleko do przodu szukac rzutu auta na trase przy kazdej klatce.")]
     public float searchForward = 6f;
-    [Tooltip("Ile wstecz. Male, zeby auto nie zrzutowalo sie na wczesniejszy fragment trasy w rownoleglym korytarzu.")]
-    public float searchBackward = 1f;
+    [Tooltip("Ile wstecz. 3 m, nie 1 m: przy postepie, ktory MOZE sie cofnac "
+           + "(progressRegressionMaxDeviation), okno szukania rzutu musi obejmowac obszar "
+           + "za autem, inaczej auto cofajace sie po scietym zakrecie nie ma gdzie sie zrzutowac.")]
+    public float searchBackward = 3f;
     public float searchStep = 0.2f;
     [Tooltip("O ile metrow ponad faktycznie przejechany dystans postep moze wzrosnac w jednej klatce.")]
     public float progressSlack = 0.3f;
@@ -38,6 +48,15 @@ public class AutoExplorer : MonoBehaviour
     public float pathUpdateInterval = 0.05f;
     [Tooltip("Promien, w jakim szukamy najblizszego punktu NavMesh dla pozycji auta i celu.")]
     public float navSampleRadius = 1.5f;
+
+    [Header("Jakosc etykiety")]
+    [Tooltip("Ponizej tego odchylenia od trasy postep na trasie moze sie COFNAC. Powyzej "
+           + "trzymamy monotonicznosc, zeby rzut nie przeskoczyl na rownolegly korytarz.")]
+    public float progressRegressionMaxDeviation = 1.0f;
+    [Tooltip("Etykieta o |kacie| wiekszym niz tyle stopni jest oznaczana jako NIEUZYWALNA "
+           + "(ExpertLabelUsable = false). Auto z kierownica Ackermanna nie wykona komendy "
+           + "'za siebie'. Ustaw rowno z MAX_LABEL_ANGLE_DEG w build_bc_dataset.py.")]
+    public float maxLabelAngleDeg = 70f;
 
     [Header("Tryb pracy")]
     [Tooltip("Gdy false, AutoExplorer LICZY expertLocalWaypoint, ale NIE rusza obiektu target. "
@@ -83,6 +102,13 @@ public class AutoExplorer : MonoBehaviour
     [Tooltip("Udzial klatek, w ktorych sciezka byla niepelna. Wysokie wartosci = trasa wychodzi "
            + "poza NavMesh albo auto ciagle laduje w miejscach bez dojazdu.")]
     public float pathFailRate = 0f;
+    [Tooltip("Kat etykiety w stopniach: 0 = prosto, dodatni = w prawo. NAJWAZNIEJSZE POLE "
+           + "przy walidacji trasy - nie moze zostawac powyzej maxLabelAngleDeg dluzej niz "
+           + "ulamek sekundy. Serie po kilka sekund oznaczaja nieprzejezdny narozník.")]
+    public float expertAngleDeg = 0f;
+    [Tooltip("Udzial klatek z etykieta nieuzywalna. Po zaokragleniu narozników powinno "
+           + "zejsc ponizej 0.03; na surowej trasie bylo 0.12-0.15.")]
+    public float labelRejectRate = 0f;
 
     private float stuckTimer = 0f;
     private float graceTimer = 0f;
@@ -98,6 +124,13 @@ public class AutoExplorer : MonoBehaviour
 
     public Vector3 ExpertWorldWaypoint => expertWorldWaypointRaw;
     public bool StuckThisFrame { get; private set; }
+
+    public bool ExpertLabelUsable =>
+        expertPathValid
+        && expertLocalWaypoint.magnitude > 0.05f
+        && Mathf.Abs(expertAngleDeg) <= maxLabelAngleDeg;
+
+    private int labelFrames = 0, labelRejects = 0;
 
 
     void Reset()
@@ -148,6 +181,9 @@ public class AutoExplorer : MonoBehaviour
         pathFails = 0;
         pathFailRate = 0f;
         pathTimer = 0f;
+        labelFrames = 0;
+        labelRejects = 0;
+        labelRejectRate = 0f;
         isExploring = true;
 
         RecomputeWorldWaypoint();
@@ -162,11 +198,24 @@ public class AutoExplorer : MonoBehaviour
         if (pathCalls > 0)
             Debug.Log($"[AutoExplorer] Sciezka NavMesh: {pathFails}/{pathCalls} nieudanych "
                     + $"({100f * pathFails / pathCalls:F1}%)");
+        if (labelFrames > 0)
+        {
+            float pct = 100f * labelRejects / labelFrames;
+            string verdict = pct < 3f ? "OK"
+                : "ZA DUZO - zaokraglij narozniki trasy (CoverageRoute -> Zaokraglij ostre narozniki)";
+            Debug.Log($"[AutoExplorer] Etykiety nieuzywalne: {labelRejects}/{labelFrames} "
+                    + $"({pct:F1}%) - {verdict}");
+        }
     }
+
+    [HideInInspector] public float forcedSpawnDistance = -1f;
 
     public void RespawnOnRoute()
     {
-        float d = Random.Range(0f, routeLength);
+        float d = forcedSpawnDistance >= 0f
+                ? Mathf.Repeat(forcedSpawnDistance, Mathf.Max(0.01f, routeLength))
+                : Random.Range(0f, routeLength);
+        forcedSpawnDistance = -1f;
         Vector3 pos = route.PointAtDistance(d);
 
         Vector3 ahead = route.PointAtDistance(d + 1f);
@@ -187,6 +236,8 @@ public class AutoExplorer : MonoBehaviour
         }
 
         if (tofScanBuffer != null) tofScanBuffer.Clear();
+
+        if (arTracker != null) arTracker.ResetSession();
 
         progressAlongRoute = d;
         stuckAnchor = carTransform.position;
@@ -240,11 +291,15 @@ public class AutoExplorer : MonoBehaviour
             lastProjectionPos = carTransform.position;
         }
 
-        if (routeLength > 1f && Mathf.FloorToInt(bestD / routeLength)
-                              > Mathf.FloorToInt(progressAlongRoute / routeLength))
+        if (routeLength > 1f && bestD > progressAlongRoute
+            && Mathf.FloorToInt(bestD / routeLength)
+             > Mathf.FloorToInt(progressAlongRoute / routeLength))
             lapsCompleted++;
 
-        progressAlongRoute = Mathf.Max(progressAlongRoute, bestD);
+        if (deviationFromRoute <= progressRegressionMaxDeviation)
+            progressAlongRoute = bestD;                        // wolno sie cofnac
+        else
+            progressAlongRoute = Mathf.Max(progressAlongRoute, bestD);
     }
 
     private float ProjectGlobally()
@@ -323,6 +378,13 @@ public class AutoExplorer : MonoBehaviour
             * Flat(expertWorldWaypointRaw - carTransform.position);
         expertLocalWaypoint = new Vector2(local.x, local.z);
 
+        expertAngleDeg = Mathf.Atan2(expertLocalWaypoint.x, expertLocalWaypoint.y)
+                       * Mathf.Rad2Deg;
+
+        labelFrames++;
+        if (!ExpertLabelUsable) labelRejects++;
+        labelRejectRate = labelFrames > 0 ? (float)labelRejects / labelFrames : 0f;
+
         if (driveTarget)
             target.position = expertWorldWaypointRaw + new Vector3(0, 0.15f, 0);
     }
@@ -353,8 +415,6 @@ public class AutoExplorer : MonoBehaviour
 
             if (respawnWhenStuck)
             {
-                // KOLEJNOSC JEST ISTOTNA: najpierw zamykamy epizod, dopiero potem
-                // przenosimy auto - inaczej teleportacja trafilaby do buforu.
                 if (dataLogger != null && dataLogger.isRecording)
                     dataLogger.RestartEpisode($"zaklinowanie na {progressAlongRoute:F1} m trasy");
                 RespawnOnRoute();
@@ -394,7 +454,7 @@ public class AutoExplorer : MonoBehaviour
                                 navPath.corners[i + 1] + Vector3.up * 0.05f);
         }
 
-        Gizmos.color = expertPathValid ? Color.green : Color.red;   // pursuit point EKSPERTA
+        Gizmos.color = expertPathValid ? Color.green : Color.red;
         Gizmos.DrawWireSphere(expertWorldWaypointRaw + Vector3.up * 0.1f, 0.3f);
         Gizmos.DrawLine(carTransform.position, expertWorldWaypointRaw);
 
@@ -406,12 +466,12 @@ public class AutoExplorer : MonoBehaviour
 
         if (route != null)
         {
-            Gizmos.color = Color.magenta;                 // rzut auta na trase
+            Gizmos.color = Color.magenta;
             Gizmos.DrawWireSphere(
                 route.PointAtDistance(progressAlongRoute) + Vector3.up * 0.1f, 0.2f);
         }
 
-        Gizmos.color = Color.cyan;                        // kierunek auta
+        Gizmos.color = Color.cyan;
         Gizmos.DrawRay(carTransform.position,
             Quaternion.Euler(0f, carTransform.eulerAngles.y, 0f) * Vector3.forward * 1.5f);
     }
