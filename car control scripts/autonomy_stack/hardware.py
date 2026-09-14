@@ -2,6 +2,7 @@ import threading
 import time
 import sys
 import os
+from tof_buffer import TofScanBuffer
 
 parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 
@@ -16,7 +17,7 @@ class CarHardware:
         self.communicator = SerialCommunicator(port, baudrate)
         self.telemetry_data = [0.0] * 11
         self.running = True
-        
+        self.tof_buffer = TofScanBuffer()
         self.rx_thread = threading.Thread(target=self._listen_loop, daemon=True)
         self.rx_thread.start()
         print("Hardware interface connected and listening.")
@@ -63,8 +64,16 @@ class CarHardware:
                     values = [float(v) for v in values_str.split(',')]
                     if len(values) == 11:
                         self.telemetry_data = values
+
+                        cam_pitch = values[2]
+                        cam_yaw = values[3]
+                        tof_dist = values[10]
+                        self.tof_buffer.update(cam_pitch, cam_yaw, tof_dist)
         except Exception:
             pass 
+
+    def get_tof_buffer(self):
+        return self.tof_buffer
 
     def get_telemetry(self):
         return self.telemetry_data

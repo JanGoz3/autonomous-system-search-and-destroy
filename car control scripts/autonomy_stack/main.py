@@ -9,6 +9,7 @@ import os
 from hardware import CarHardware
 from perception import YoloProcessor, gstreamer_pipeline
 from agents import DriverNetAgent
+from planner import TransformerPlanner
 
 import math
 from artracker import ARTracker
@@ -21,8 +22,11 @@ def get_yaw_from_quaternion(qx, qy, qz, qw):
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
+USE_TRANSFORMER_ROUTING = False
+
 DRIVER_MODEL_PATH = os.path.join(BASE_DIR, "DriverNet.onnx")
 YOLO_MODEL_PATH = os.path.join(BASE_DIR, "yolo_ours_v5.onnx")
+TRANSFORMER_MODEL_PATH = os.path.join(BASE_DIR, "transformer.onnx")
 
 STACKED_VECTORS = 3
 STATE_SPACE = 40
@@ -93,24 +97,25 @@ def terminal_input_thread():
     print("="*50 + "\n")
     
     while is_running:
-        try:
-            user_input = input()
-            if user_input.strip().lower() == 'q':
-                is_running = False
+        if not USE_TRANSFORMER_ROUTING:
+            try:
+                user_input = input()
+                if user_input.strip().lower() == 'q':
+                    is_running = False
+                    break
+                    
+                parts = user_input.split(',')
+                if len(parts) == 2:
+                    current_target_x = float(parts[0].strip())
+                    current_target_z = float(parts[1].strip())
+                    last_command_time = time.perf_counter()
+                    print(f">>> [ACCEPTED] Car routing to X:{current_target_x:.2f}m, Z:{current_target_z:.2f}m")
+                else:
+                    print(">>> [ERROR] Invalid format. Type exactly like: 0.5, 2.0")
+            except ValueError:
+                print(">>> [ERROR] Please enter valid numbers.")
+            except EOFError:
                 break
-                
-            parts = user_input.split(',')
-            if len(parts) == 2:
-                current_target_x = float(parts[0].strip())
-                current_target_z = float(parts[1].strip())
-                last_command_time = time.perf_counter()
-                print(f">>> [ACCEPTED] Car routing to X:{current_target_x:.2f}m, Z:{current_target_z:.2f}m")
-            else:
-                print(">>> [ERROR] Invalid format. Type exactly like: 0.5, 2.0")
-        except ValueError:
-            print(">>> [ERROR] Please enter valid numbers.")
-        except EOFError:
-            break
 
 def draw_debug_overlay(debug_frame, detections, is_engaging, engagement_timer, best_target):
     """Draws detections, crosshairs, and tracking status on a 320x320 image."""
@@ -168,6 +173,9 @@ def main():
 
     driver_session = ort.InferenceSession(DRIVER_MODEL_PATH, providers=providers)
     driver_agent = DriverNetAgent(driver_session)
+
+    transformer_session = ort.InferenceSession(TRANSFORMER_MODEL_PATH, providers=providers)
+    transformer_planner = TransformerPlanner(transformer_session)
 
     hardware = CarHardware("/dev/ttyACM0", 115200)
     
@@ -251,10 +259,16 @@ def main():
                 break
 
             raw_telemetry = hardware.get_telemetry()
+            tof_buffer = hardware.get_tof_buffer()
             
             car_global_x = ar_tracker.x
             car_global_z = ar_tracker.z
             car_yaw_rad = get_yaw_from_quaternion(ar_tracker.qx, ar_tracker.qy, ar_tracker.qz, ar_tracker.qw)
+
+            if USE_TRANSFORMER_ROUTING:
+                current_target_x, current_target_z = transformer_planner.get_destination(
+                    current_time, car_yaw_rad, raw_telemetry, yolo_obs, tof_buffer, car_global_x, car_global_z
+                )
             
             global_error_x = current_target_x - car_global_x
             global_error_z = current_target_z - car_global_z
@@ -310,18 +324,19 @@ def main():
 
             is_active_mission = (current_target_x != 0.0 or current_target_z != 0.0)
 
-            if is_active_mission and (current_time - last_command_time > MAX_EXEC_TIME):
-                throttle = 0.0
-                steering = 0.0
-                bot_state = "KILLED (Stuck)"
+            if not USE_TRANSFORMER_ROUTING:
+                if is_active_mission and (current_time - last_command_time > MAX_EXEC_TIME):
+                    throttle = 0.0
+                    steering = 0.0
+                    bot_state = "KILLED (Stuck)"
 
-            if distance_to_target < ARRIVAL_TOLERANCE:
-                current_target_x = car_global_x
-                current_target_z = car_global_z
-                throttle = 0.0
-                steering = 0.0
-                bot_state = "ARRIVED"
-                last_command_time = current_time
+                if distance_to_target < ARRIVAL_TOLERANCE:
+                    current_target_x = car_global_x
+                    current_target_z = car_global_z
+                    throttle = 0.0
+                    steering = 0.0
+                    bot_state = "ARRIVED"
+                    last_command_time = current_time
 
             final_throttle = throttle
             
