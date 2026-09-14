@@ -111,7 +111,7 @@ public:
             float physicalSwing = 0.0f;
 
             if (constrainedInput > 0.0f) physicalSwing = constrainedInput * 0.422f; 
-            else if (constrainedInput < 0.0f) physicalSwing = constrainedInput * 0.318f;
+            else if (constrainedInput < 0.0f) physicalSwing = constrainedInput * 0.125f;
 
             float swingConstrainedPitch = constrain(-1.0f * physicalSwing, m_SwingConstraintPitchDown, m_SwingConstraintPitchUp);
             
@@ -191,7 +191,7 @@ public:
         if (physicalSwingPitch > 0.0f) {
             normPitch = physicalSwingPitch / 0.422f;
         } else if (physicalSwingPitch < 0.0f) {
-            normPitch = physicalSwingPitch / 0.318f;
+            normPitch = physicalSwingPitch / 0.125f;
         }
 
         float physicalSwingYaw = (m_currentYawDeg - 90.0f) * (2.0f / 180.0f) * -1.0f;

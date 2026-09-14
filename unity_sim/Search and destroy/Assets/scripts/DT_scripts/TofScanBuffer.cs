@@ -8,7 +8,6 @@ public class TofScanBuffer : MonoBehaviour
 
     [Header("Scan Configuration")]
     [Min(1)] public int sectorCount = 16;
-    // AutonomousCar.prefab: physicalLeftYawAngle = -87.5, physicalRightYawAngle = 76.5 stopnia.
     public float minYawDegrees = -87.5f;
     public float maxYawDegrees = 76.5f;
     [Min(0.01f)] public float maxMeasurementAgeSeconds = 5f;
@@ -17,10 +16,6 @@ public class TofScanBuffer : MonoBehaviour
     [Tooltip("Ile sektorow ma swiezy pomiar. Jesli utrzymuje sie blisko 1, wiezyczka nie omiata zakresu i profil nie powstaje.")]
     public int freshSectors = 0;
 
-    // 3000, nie 4000: Chassis.GetTelemetryState normalizuje ten SAM czujnik
-    // przez maxTof = 3000. Dwie skale jednego czujnika w jednym wektorze stanu
-    // to niepotrzebna niespojnosc. NIE zmieniaj maxTof w Chassis - telem_10
-    // jest czescia 40-wymiarowej obserwacji PPO i zepsulby sie kierowca.
     private const float MaxDistanceMm = 3000f;
     private float[] distancesMm;
     private float[] pitchesDeg;
@@ -99,11 +94,6 @@ public class TofScanBuffer : MonoBehaviour
         freshSectors = n;
     }
 
-    /// <summary>Znormalizowane odleglosci. Sektor bez swiezego pomiaru zwraca
-    /// 1.0 = DALEKO. Wczesniej zwracal 0.0, co po normalizacji znaczy
-    /// "przeszkoda w odleglosci 0 mm" - przeterminowany pomiar wygladal dla
-    /// modelu jak sciana przy zderzaku. To bylo odwrocenie znaku, nie brak
-    /// informacji; na zebranych danych dotyczylo 13-15% sektorow.</summary>
     public float[] GetNormalizedDistances()
     {
         EnsureStorage();

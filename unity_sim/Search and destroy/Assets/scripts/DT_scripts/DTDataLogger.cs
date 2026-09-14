@@ -17,7 +17,7 @@ public struct DTStepData
     public float expertX;       // ETYKIETA: wektor do pursuit pointa w ukladzie auta
     public float expertZ;
     public bool expertValid;    // czy etykieta nadaje sie do lossu (ExpertLabelUsable)
-    public float progressAlongRoute;   // rzut auta na trase, w metrach po luku
+    public float progressAlongRoute;
     public float deviationFromRoute;   // odleglosc auta od trasy, w metrach
     public float turretPitchDeg;
     public float turretYawDeg;
@@ -144,11 +144,6 @@ public class DTDataLogger : MonoBehaviour
         if (autoExplorer != null && autoExplorer.isExploring)
         {
             expert = autoExplorer.expertLocalWaypoint;
-
-            // BYLO: expertOk = true bezwarunkowo. Kolumna expert_valid byla wiec
-            // stale rowna 1 i filtr etykiet fallbackowych nie dzialal nigdy.
-            // ExpertLabelUsable sprawdza pelna sciezke NavMesh, niezerowa dlugosc
-            // ORAZ |kat| <= maxLabelAngleDeg.
             expertOk = autoExplorer.ExpertLabelUsable;
 
             progress = autoExplorer.progressAlongRoute;
